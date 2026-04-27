@@ -19,44 +19,44 @@ namespace Api.Database.Context
 
         private static List<PlantData> GetPlantData()
         {
+            var workflow = new Workflow();
+            var anonymizationStep = workflow.EnsureStep(WorkflowStepType.Anonymization);
+            anonymizationStep.SourceBlobStorageLocation = new BlobStorageLocation
+            {
+                StorageAccount = "",
+                BlobContainer = "",
+                BlobName = "",
+            };
+            anonymizationStep.DestinationBlobStorageLocation = new BlobStorageLocation
+            {
+                StorageAccount = "",
+                BlobContainer = "",
+                BlobName = "",
+            };
+            anonymizationStep.AnonymizationData = new AnonymizationData();
+
+            var fencillaStep = workflow.EnsureStep(WorkflowStepType.FencillaAnalysis);
+            fencillaStep.SourceBlobStorageLocation = new BlobStorageLocation
+            {
+                StorageAccount = "",
+                BlobContainer = "",
+                BlobName = "",
+            };
+            fencillaStep.DestinationBlobStorageLocation = new BlobStorageLocation
+            {
+                StorageAccount = "",
+                BlobContainer = "",
+                BlobName = "",
+            };
+            fencillaStep.FencillaData = new FencillaData { IsBreak = true, Confidence = 90 };
+
             var data1 = new PlantData
             {
                 InspectionId = "9df55f01-215e-407e-9778-9a6f3f5dc647",
                 InstallationCode = "nls",
                 Tag = "tag",
                 InspectionDescription = "fencilla",
-                Anonymization = new Anonymization
-                {
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "",
-                        BlobContainer = "",
-                        BlobName = "",
-                    },
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "",
-                        BlobContainer = "",
-                        BlobName = "",
-                    },
-                },
-                FencillaAnalysis = new FencillaAnalysis
-                {
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "",
-                        BlobContainer = "",
-                        BlobName = "",
-                    },
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "",
-                        BlobContainer = "",
-                        BlobName = "",
-                    },
-                    IsBreak = true,
-                    Confidence = 90,
-                },
+                Workflow = workflow,
             };
 
             return new List<PlantData>([data1]);

@@ -1,4 +1,5 @@
 import { Typography } from "@equinor/eds-core-react";
+import { getPlantDataWorkflowStep } from "../../api/client";
 import type { PlantData } from "../../api/client";
 import WorkflowTriggerButton from "../../components/WorkflowTriggerButton";
 import WorkflowSection from "./WorkflowSection";
@@ -18,6 +19,8 @@ interface AnonymizationSectionProps {
 }
 
 export default function AnonymizationSection({ data, triggering, onTrigger }: AnonymizationSectionProps) {
+  const anonymizationStep = getPlantDataWorkflowStep(data, "Anonymization");
+
   return (
     <>
       <StyledSectionHeader>
@@ -26,23 +29,27 @@ export default function AnonymizationSection({ data, triggering, onTrigger }: An
       </StyledSectionHeader>
       <WorkflowSection
         title=""
-        workflow={data.anonymization}
-        extraFields={[
-          {
-            label: "Person in Image",
-            value: data.anonymization.isPersonInImage == null
-              ? "-"
-              : data.anonymization.isPersonInImage
-                ? "Yes"
-                : "No",
-          },
-          ...(data.anonymization.preProcessedBlobStorageLocation
-            ? [{
-                label: "Pre-processed Location",
-                value: `${data.anonymization.preProcessedBlobStorageLocation.storageAccount}/${data.anonymization.preProcessedBlobStorageLocation.blobContainer}/${data.anonymization.preProcessedBlobStorageLocation.blobName}`,
-              }]
-            : []),
-        ]}
+        workflow={anonymizationStep}
+        extraFields={
+          anonymizationStep
+            ? [
+                {
+                  label: "Person in Image",
+                  value: anonymizationStep.anonymizationData?.isPersonInImage == null
+                    ? "-"
+                    : anonymizationStep.anonymizationData.isPersonInImage
+                      ? "Yes"
+                      : "No",
+                },
+                ...(anonymizationStep.anonymizationData?.preProcessedBlobStorageLocation
+                  ? [{
+                      label: "Pre-processed Location",
+                      value: `${anonymizationStep.anonymizationData.preProcessedBlobStorageLocation.storageAccount}/${anonymizationStep.anonymizationData.preProcessedBlobStorageLocation.blobContainer}/${anonymizationStep.anonymizationData.preProcessedBlobStorageLocation.blobName}`,
+                    }]
+                  : []),
+              ]
+            : undefined
+        }
       />
     </>
   );

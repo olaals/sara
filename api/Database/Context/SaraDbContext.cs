@@ -9,21 +9,81 @@ namespace api.Database.Context
     {
         public DbSet<PlantData> PlantData { get; set; } = null!;
 
-        public DbSet<Anonymization> Anonymization { get; set; } = null!;
+        public DbSet<Workflow> Workflow { get; set; } = null!;
 
-        public DbSet<CLOEAnalysis> CLOEAnalysis { get; set; } = null!;
+        public DbSet<WorkflowStep> WorkflowStep { get; set; } = null!;
 
-        public DbSet<FencillaAnalysis> FencillaAnalysis { get; set; } = null!;
+        public DbSet<AnonymizationData> AnonymizationData { get; set; } = null!;
+
+        public DbSet<CLOEData> CLOEData { get; set; } = null!;
+
+        public DbSet<FencillaData> FencillaData { get; set; } = null!;
+
+        public DbSet<ThermalReadingData> ThermalReadingData { get; set; } = null!;
 
         public DbSet<AnalysisMapping> AnalysisMapping { get; set; } = null!;
-
-        public DbSet<ThermalReadingAnalysis> ThermalReading { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             AddConverterForListOfEnums(
                 modelBuilder.Entity<AnalysisMapping>().Property(r => r.AnalysesToBeRun)
             );
+
+            modelBuilder
+                .Entity<PlantData>()
+                .HasOne(plantData => plantData.Workflow)
+                .WithOne()
+                .HasForeignKey<PlantData>(plantData => plantData.WorkflowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder
+                .Entity<Workflow>()
+                .HasMany(workflow => workflow.WorkflowSteps)
+                .WithOne(step => step.Workflow)
+                .HasForeignKey(step => step.WorkflowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<WorkflowStep>().OwnsOne(step => step.SourceBlobStorageLocation);
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .OwnsOne(step => step.DestinationBlobStorageLocation);
+
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .HasIndex(step => new { step.WorkflowId, step.Type })
+                .IsUnique();
+
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .HasOne(step => step.AnonymizationData)
+                .WithOne(data => data.WorkflowStep)
+                .HasForeignKey<AnonymizationData>(data => data.WorkflowStepId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .HasOne(step => step.CLOEData)
+                .WithOne(data => data.WorkflowStep)
+                .HasForeignKey<CLOEData>(data => data.WorkflowStepId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .HasOne(step => step.FencillaData)
+                .WithOne(data => data.WorkflowStep)
+                .HasForeignKey<FencillaData>(data => data.WorkflowStepId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder
+                .Entity<WorkflowStep>()
+                .HasOne(step => step.ThermalReadingData)
+                .WithOne(data => data.WorkflowStep)
+                .HasForeignKey<ThermalReadingData>(data => data.WorkflowStepId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder
+                .Entity<AnonymizationData>()
+                .OwnsOne(data => data.PreProcessedBlobStorageLocation);
 
             modelBuilder
                 .Entity<AnalysisMapping>()

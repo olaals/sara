@@ -51,7 +51,7 @@ public class CLOEWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -100,7 +100,7 @@ public class CLOEWorkflowNotificationController(
                 notification.Confidence,
                 notification.InspectionId
             );
-            return Ok(updatedPlantData);
+            return Ok(new PlantDataResponse(updatedPlantData));
         }
 
         var uploadRequest = new TriggerTimeseriesUploadRequest
@@ -122,7 +122,7 @@ public class CLOEWorkflowNotificationController(
         };
         await timeseriesService.TriggerTimeseriesUpload(uploadRequest);
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -153,28 +153,32 @@ public class CLOEWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        var cloeAnalysis =
-            updatedPlantData.CLOEAnalysis
+        var cloeStep =
+            updatedPlantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis)
             ?? throw new InvalidOperationException(
                 $"CLOE analysis is not set up for plant data with inspection id {notification.InspectionId}"
             );
+        var cloeData =
+            cloeStep.CLOEData
+            ?? throw new InvalidOperationException(
+                $"CLOE data is not set up for plant data with inspection id {notification.InspectionId}"
+            );
+        var oilLevel = cloeData.OilLevel ?? 0F;
+        var confidence = cloeData.Confidence ?? 0F;
 
         const float confidenceThreshold = 0.3F;
         const float lowOilLevelThreshold = 0.05F;
 
         string? warning = null;
-        if (
-            cloeAnalysis.OilLevel < lowOilLevelThreshold
-            && cloeAnalysis.Confidence >= confidenceThreshold
-        )
+        if (oilLevel < lowOilLevelThreshold && confidence >= confidenceThreshold)
         {
             warning = "Oil Level is below 5%";
         }
 
         string? value = null;
-        if (cloeAnalysis.Confidence >= confidenceThreshold)
+        if (confidence >= confidenceThreshold)
         {
-            value = (cloeAnalysis.OilLevel * 100).ToString();
+            value = (oilLevel * 100).ToString();
         }
 
         var message = new SaraAnalysisResultMessage
@@ -183,15 +187,15 @@ public class CLOEWorkflowNotificationController(
             AnalysisType = nameof(AnalysisType.ConstantLevelOiler),
             Value = value,
             Unit = "percentage",
-            Confidence = cloeAnalysis.Confidence * 100,
+            Confidence = confidence * 100,
             Warning = warning,
-            StorageAccount = cloeAnalysis.DestinationBlobStorageLocation.StorageAccount,
-            BlobContainer = cloeAnalysis.DestinationBlobStorageLocation.BlobContainer,
-            BlobName = cloeAnalysis.DestinationBlobStorageLocation.BlobName,
+            StorageAccount = cloeStep.DestinationBlobStorageLocation.StorageAccount,
+            BlobContainer = cloeStep.DestinationBlobStorageLocation.BlobContainer,
+            BlobName = cloeStep.DestinationBlobStorageLocation.BlobName,
         };
 
         await mqttPublisherService.PublishSaraAnalysisResultAvailable(message);
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 }

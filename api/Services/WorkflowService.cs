@@ -36,15 +36,15 @@ public record TriggerThermalReadingRequest(
 
 public interface IArgoWorkflowService
 {
-    public Task TriggerAnonymizer(string inspectionId, Anonymization anonymization);
-    public Task TriggerCLOE(string inspectionId, CLOEAnalysis analysis);
-    public Task TriggerFencilla(string inspectionId, FencillaAnalysis analysis);
+    public Task TriggerAnonymizer(string inspectionId, WorkflowStep workflowStep);
+    public Task TriggerCLOE(string inspectionId, WorkflowStep workflowStep);
+    public Task TriggerFencilla(string inspectionId, WorkflowStep workflowStep);
     public Task TriggerThermalReading(
         string inspectionId,
         string tagId,
         string inspectionDescription,
         string installationCode,
-        ThermalReadingAnalysis analysis
+        WorkflowStep workflowStep
     );
     public WorkflowStatus GetWorkflowStatus(
         WorkflowExitedNotification notification,
@@ -76,13 +76,27 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public async Task TriggerAnonymizer(string inspectionId, Anonymization anonymization)
+    private static void EnsureStepType(WorkflowStep workflowStep, WorkflowStepType expectedStepType)
     {
+        if (workflowStep.Type != expectedStepType)
+        {
+            throw new InvalidOperationException(
+                $"Expected workflow step type {expectedStepType} but got {workflowStep.Type}."
+            );
+        }
+    }
+
+    public async Task TriggerAnonymizer(string inspectionId, WorkflowStep workflowStep)
+    {
+        EnsureStepType(workflowStep, WorkflowStepType.Anonymization);
+
         var postRequestData = new TriggerAnonymizerRequest(
             InspectionId: inspectionId,
-            RawDataBlobStorageLocation: anonymization.SourceBlobStorageLocation,
-            AnonymizedBlobStorageLocation: anonymization.DestinationBlobStorageLocation,
-            PreProcessedBlobStorageLocation: anonymization.PreProcessedBlobStorageLocation
+            RawDataBlobStorageLocation: workflowStep.SourceBlobStorageLocation,
+            AnonymizedBlobStorageLocation: workflowStep.DestinationBlobStorageLocation,
+            PreProcessedBlobStorageLocation: workflowStep
+                .AnonymizationData
+                ?.PreProcessedBlobStorageLocation
         );
 
         var json = JsonSerializer.Serialize(postRequestData, useCamelCaseOption);
@@ -94,9 +108,9 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
                 + "AnonymizedBlobStorageLocation: {AnonymizedBlobStorageLocation}, "
                 + "PreProcessedBlobStorageLocation: {PreProcessedBlobStorageLocation}",
             inspectionId,
-            anonymization.SourceBlobStorageLocation,
-            anonymization.DestinationBlobStorageLocation,
-            anonymization.PreProcessedBlobStorageLocation
+            workflowStep.SourceBlobStorageLocation,
+            workflowStep.DestinationBlobStorageLocation,
+            workflowStep.AnonymizationData?.PreProcessedBlobStorageLocation
         );
 
         var response = await client.PostAsync(_baseUrlAnonymizer, content);
@@ -111,12 +125,14 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
         }
     }
 
-    public async Task TriggerCLOE(string inspectionId, CLOEAnalysis analysis)
+    public async Task TriggerCLOE(string inspectionId, WorkflowStep workflowStep)
     {
+        EnsureStepType(workflowStep, WorkflowStepType.CLOEAnalysis);
+
         var postRequestData = new TriggerCLOERequest(
             InspectionId: inspectionId,
-            SourceBlobStorageLocation: analysis.SourceBlobStorageLocation,
-            VisualizedBlobStorageLocation: analysis.DestinationBlobStorageLocation
+            SourceBlobStorageLocation: workflowStep.SourceBlobStorageLocation,
+            VisualizedBlobStorageLocation: workflowStep.DestinationBlobStorageLocation
         );
 
         var json = JsonSerializer.Serialize(postRequestData, useCamelCaseOption);
@@ -127,8 +143,8 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
                 + "SourceBlobStorageLocation: {SourceBlobStorageLocation}, "
                 + "VisualizedBlobStorageLocation: {VisualizedBlobStorageLocation}",
             inspectionId,
-            analysis.SourceBlobStorageLocation,
-            analysis.DestinationBlobStorageLocation
+            workflowStep.SourceBlobStorageLocation,
+            workflowStep.DestinationBlobStorageLocation
         );
 
         var response = await client.PostAsync(_baseUrlCLOE, content);
@@ -143,12 +159,14 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
         }
     }
 
-    public async Task TriggerFencilla(string inspectionId, FencillaAnalysis analysis)
+    public async Task TriggerFencilla(string inspectionId, WorkflowStep workflowStep)
     {
+        EnsureStepType(workflowStep, WorkflowStepType.FencillaAnalysis);
+
         var postRequestData = new TriggerFencillaRequest(
             InspectionId: inspectionId,
-            SourceBlobStorageLocation: analysis.SourceBlobStorageLocation,
-            VisualizedBlobStorageLocation: analysis.DestinationBlobStorageLocation
+            SourceBlobStorageLocation: workflowStep.SourceBlobStorageLocation,
+            VisualizedBlobStorageLocation: workflowStep.DestinationBlobStorageLocation
         );
 
         var json = JsonSerializer.Serialize(postRequestData, useCamelCaseOption);
@@ -159,8 +177,8 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
                 + "SourceBlobStorageLocation: {SourceBlobStorageLocation}, "
                 + "VisualizedBlobStorageLocation: {VisualizedBlobStorageLocation}",
             inspectionId,
-            analysis.SourceBlobStorageLocation,
-            analysis.DestinationBlobStorageLocation
+            workflowStep.SourceBlobStorageLocation,
+            workflowStep.DestinationBlobStorageLocation
         );
 
         var response = await client.PostAsync(_baseUrlFencilla, content);
@@ -180,16 +198,18 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
         string tagId,
         string inspectionDescription,
         string installationCode,
-        ThermalReadingAnalysis analysis
+        WorkflowStep workflowStep
     )
     {
+        EnsureStepType(workflowStep, WorkflowStepType.ThermalReadingAnalysis);
+
         var postRequestData = new TriggerThermalReadingRequest(
             InspectionId: inspectionId,
             TagId: tagId,
             InspectionDescription: inspectionDescription,
             InstallationCode: installationCode,
-            SourceBlobStorageLocation: analysis.SourceBlobStorageLocation,
-            VisualizedBlobStorageLocation: analysis.DestinationBlobStorageLocation
+            SourceBlobStorageLocation: workflowStep.SourceBlobStorageLocation,
+            VisualizedBlobStorageLocation: workflowStep.DestinationBlobStorageLocation
         );
 
         var json = JsonSerializer.Serialize(postRequestData, useCamelCaseOption);
@@ -204,8 +224,8 @@ public class ArgoWorkflowService(IConfiguration configuration, ILogger<ArgoWorkf
             tagId,
             inspectionDescription,
             installationCode,
-            analysis.SourceBlobStorageLocation,
-            analysis.DestinationBlobStorageLocation
+            workflowStep.SourceBlobStorageLocation,
+            workflowStep.DestinationBlobStorageLocation
         );
 
         var response = await client.PostAsync(_baseUrlThermalReading, content);

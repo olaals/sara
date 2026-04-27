@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Button, Dialog, Icon, Typography } from "@equinor/eds-core-react";
 import { play } from "@equinor/eds-icons";
-import type { PlantData, Workflow } from "../api/client";
+import { getPlantDataWorkflowStep } from "../api/client";
+import type { PlantData, WorkflowStep, WorkflowStepType } from "../api/client";
 
 Icon.add({ play });
 
@@ -11,13 +12,17 @@ interface WorkflowTriggerButtonProps {
   onTrigger: (plantData: PlantData) => Promise<void> | void;
 }
 
-function getWorkflowChain(data: PlantData): Workflow[] {
-  return [
-    data.anonymization,
-    data.cloeAnalysis ?? null,
-    data.fencillaAnalysis ?? null,
-    data.thermalReadingAnalysis ?? null,
-  ].filter((workflow): workflow is Workflow => workflow !== null);
+const WORKFLOW_CHAIN_ORDER: WorkflowStepType[] = [
+  "Anonymization",
+  "CLOEAnalysis",
+  "FencillaAnalysis",
+  "ThermalReadingAnalysis",
+];
+
+function getWorkflowChain(data: PlantData): WorkflowStep[] {
+  return WORKFLOW_CHAIN_ORDER.map((stepType) => getPlantDataWorkflowStep(data, stepType)).filter(
+    (workflow): workflow is WorkflowStep => workflow !== undefined
+  );
 }
 
 export default function WorkflowTriggerButton({

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using api.Database.Context;
 using api.Database.Models;
 using api.Services;
+using api.Tests;
 using api.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -47,21 +48,16 @@ public class PlantDataServiceTests
                     InspectionId = $"inspection-{i}",
                     InstallationCode = "INST",
                     DateCreated = dateCreatedValues[i],
-                    Anonymization = new Anonymization
+                    Workflow = new Workflow
                     {
-                        Status = WorkflowStatus.NotStarted,
-                        DestinationBlobStorageLocation = new BlobStorageLocation
-                        {
-                            StorageAccount = "sa",
-                            BlobContainer = "c",
-                            BlobName = "b",
-                        },
-                        SourceBlobStorageLocation = new BlobStorageLocation
-                        {
-                            StorageAccount = "sa",
-                            BlobContainer = "c",
-                            BlobName = "b",
-                        },
+                        WorkflowSteps =
+                        [
+                            WorkflowTestFactory.CreateAnonymizationStep(
+                                status: WorkflowStatus.NotStarted,
+                                source: WorkflowTestFactory.CreateLocation("b", "sa", "c"),
+                                destination: WorkflowTestFactory.CreateLocation("b", "sa", "c")
+                            ),
+                        ],
                     },
                 }
             );

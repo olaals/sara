@@ -1,8 +1,10 @@
 using System;
 using System.Threading.Tasks;
+using api.Controllers.Models;
 using api.Database.Context;
 using api.Database.Models;
 using api.Services;
+using api.Tests;
 using api.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +36,72 @@ namespace api.Controllers.Tests
             var loggerControllerMock = new Mock<ILogger<PlantDataController>>();
             var loggerAnalysisMappingServiceMock = new Mock<ILogger<AnalysisMappingService>>();
             var blobServiceMock = new Mock<IBlobService>();
+            blobServiceMock
+                .Setup(service =>
+                    service.CreateRawBlobStorageLocation(
+                        It.IsAny<string>(),
+                        It.IsAny<string>(),
+                        It.IsAny<string>()
+                    )
+                )
+                .Returns(
+                    (string storageAccount, string blobContainer, string blobName) =>
+                        new BlobStorageLocation
+                        {
+                            StorageAccount = storageAccount,
+                            BlobContainer = blobContainer,
+                            BlobName = blobName,
+                        }
+                );
+            blobServiceMock
+                .Setup(service =>
+                    service.CreateAnonymizedBlobStorageLocation(
+                        It.IsAny<string>(),
+                        It.IsAny<string>()
+                    )
+                )
+                .Returns(
+                    (string blobContainer, string blobName) =>
+                        new BlobStorageLocation
+                        {
+                            StorageAccount = "dummy-anonymized",
+                            BlobContainer = blobContainer,
+                            BlobName = blobName,
+                        }
+                );
+            blobServiceMock
+                .Setup(service =>
+                    service.CreateVisualizedBlobStorageLocation(
+                        It.IsAny<string>(),
+                        It.IsAny<string>(),
+                        It.IsAny<string>()
+                    )
+                )
+                .Returns(
+                    (string blobContainer, string blobName, string prefix) =>
+                        new BlobStorageLocation
+                        {
+                            StorageAccount = $"dummy-{prefix}",
+                            BlobContainer = blobContainer,
+                            BlobName = blobName,
+                        }
+                );
+            blobServiceMock
+                .Setup(service =>
+                    service.CreatePreProcessedBlobStorageLocation(
+                        It.IsAny<string>(),
+                        It.IsAny<string>()
+                    )
+                )
+                .Returns(
+                    (string blobContainer, string blobName) =>
+                        new BlobStorageLocation
+                        {
+                            StorageAccount = "dummy-preprocessed",
+                            BlobContainer = blobContainer,
+                            BlobName = blobName,
+                        }
+                );
 
             _analysisMappingService = new AnalysisMappingService(
                 context,
@@ -70,29 +138,6 @@ namespace api.Controllers.Tests
                     BlobName = "dummy.jpg",
                 },
             };
-            var expectedPlantData = new PlantData
-            {
-                InspectionId = "dummyInspectionId",
-                InstallationCode = "dummyInstallationCode",
-                Tag = "dummyTagId",
-                InspectionDescription = "dummyInspectionDescription",
-                Anonymization = new Anonymization
-                {
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyRawStorageAccount",
-                        BlobContainer = "dummyRawBlobContainer",
-                        BlobName = "dummyRawBlobName",
-                    },
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyAnonStorageAccount",
-                        BlobContainer = "dummyAnonBlobContainer",
-                        BlobName = "dummyBlobName",
-                    },
-                },
-            };
-
             // Act
             var result = await _plantDataController.CreatePlantData(request);
 
@@ -100,19 +145,33 @@ namespace api.Controllers.Tests
             var createdResult = Assert.IsType<CreatedAtActionResult>(result);
             Assert.Equal(nameof(_plantDataController.GetPlantDataById), createdResult.ActionName);
 
-            var createdPlantData = createdResult.Value as PlantData;
+            var createdPlantData = createdResult.Value as PlantDataResponse;
             Assert.NotNull(createdPlantData);
-            Assert.Equal(expectedPlantData.InspectionId, createdPlantData.InspectionId);
-            Assert.Equal(expectedPlantData.InstallationCode, createdPlantData.InstallationCode);
-            Assert.Equal(expectedPlantData.Tag, createdPlantData.Tag);
-            Assert.Equal(
-                expectedPlantData.InspectionDescription,
-                createdPlantData.InspectionDescription
+            Assert.Equal("dummyInspectionId", createdPlantData.InspectionId);
+            Assert.Equal("dummyInstallationCode", createdPlantData.InstallationCode);
+            Assert.Equal("dummyTagId", createdPlantData.Tag);
+            Assert.Equal("dummyInspectionDescription", createdPlantData.InspectionDescription);
+            Assert.NotNull(createdPlantData.Workflow);
+            Assert.NotNull(
+                createdPlantData.Workflow!.Steps.Find(step =>
+                    step.Type == WorkflowStepType.Anonymization
+                )
             );
-            Assert.NotNull(createdPlantData.Anonymization);
-            Assert.Null(createdPlantData.CLOEAnalysis);
-            Assert.Null(createdPlantData.FencillaAnalysis);
-            Assert.Null(createdPlantData.ThermalReadingAnalysis);
+            Assert.Null(
+                createdPlantData.Workflow.Steps.Find(step =>
+                    step.Type == WorkflowStepType.CLOEAnalysis
+                )
+            );
+            Assert.Null(
+                createdPlantData.Workflow.Steps.Find(step =>
+                    step.Type == WorkflowStepType.FencillaAnalysis
+                )
+            );
+            Assert.Null(
+                createdPlantData.Workflow.Steps.Find(step =>
+                    step.Type == WorkflowStepType.ThermalReadingAnalysis
+                )
+            );
         }
 
         [Fact]
@@ -144,11 +203,24 @@ namespace api.Controllers.Tests
 
             // Assert
             var createdResult = Assert.IsType<CreatedAtActionResult>(result);
-            var returnedPlantData = Assert.IsType<PlantData>(createdResult.Value);
+            var returnedPlantData = Assert.IsType<PlantDataResponse>(createdResult.Value);
 
-            Assert.NotNull(returnedPlantData.CLOEAnalysis);
-            Assert.Null(returnedPlantData.FencillaAnalysis);
-            Assert.Null(returnedPlantData.ThermalReadingAnalysis);
+            Assert.NotNull(returnedPlantData.Workflow);
+            Assert.NotNull(
+                returnedPlantData.Workflow!.Steps.Find(step =>
+                    step.Type == WorkflowStepType.CLOEAnalysis
+                )
+            );
+            Assert.Null(
+                returnedPlantData.Workflow.Steps.Find(step =>
+                    step.Type == WorkflowStepType.FencillaAnalysis
+                )
+            );
+            Assert.Null(
+                returnedPlantData.Workflow.Steps.Find(step =>
+                    step.Type == WorkflowStepType.ThermalReadingAnalysis
+                )
+            );
         }
 
         [Fact]

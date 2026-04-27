@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 #pragma warning disable CS8618
 namespace api.Database.Models;
@@ -41,12 +41,38 @@ public class PlantData
         set => _timestamp = value?.Kind == DateTimeKind.Utc ? value : value?.ToUniversalTime();
     }
 
-    [Required]
-    public required Anonymization Anonymization { get; set; }
+    public Guid? WorkflowId { get; set; }
 
-    public CLOEAnalysis? CLOEAnalysis { get; set; }
+    [JsonIgnore]
+    public Workflow? Workflow { get; set; }
 
-    public FencillaAnalysis? FencillaAnalysis { get; set; }
+    public WorkflowStep? GetWorkflowStep(WorkflowStepType stepType) => Workflow?.GetStep(stepType);
 
-    public ThermalReadingAnalysis? ThermalReadingAnalysis { get; set; }
+    public WorkflowStep GetRequiredWorkflowStep(WorkflowStepType stepType, string inspectionId)
+    {
+        return GetWorkflowStep(stepType)
+            ?? throw new InvalidOperationException(
+                $"{stepType} is not set up for plant data with inspection id {inspectionId}"
+            );
+    }
+
+    public Workflow EnsureWorkflow()
+    {
+        Workflow ??= new Workflow();
+        return Workflow;
+    }
+
+    public WorkflowStep EnsureWorkflowStep(WorkflowStepType stepType)
+    {
+        return EnsureWorkflow().EnsureStep(stepType);
+    }
+
+    public void RemoveWorkflowStep(WorkflowStepType stepType)
+    {
+        Workflow?.RemoveStep(stepType);
+        if (Workflow is { WorkflowSteps.Count: 0 })
+        {
+            Workflow = null;
+        }
+    }
 }

@@ -53,31 +53,49 @@ export interface BlobStorageLocation {
   blobName: string;
 }
 
-export interface Workflow {
-  id: string;
-  sourceBlobStorageLocation: BlobStorageLocation;
-  destinationBlobStorageLocation: BlobStorageLocation;
-  dateCreated: string;
-  status: "NotStarted" | "Started" | "ExitSuccess" | "ExitFailure";
-}
+export type WorkflowStatus = "NotStarted" | "Started" | "ExitSuccess" | "ExitFailure";
 
-export interface Anonymization extends Workflow {
+export type WorkflowStepType =
+  | "Anonymization"
+  | "CLOEAnalysis"
+  | "FencillaAnalysis"
+  | "ThermalReadingAnalysis";
+
+export interface AnonymizationStepData {
   isPersonInImage?: boolean | null;
   preProcessedBlobStorageLocation?: BlobStorageLocation | null;
 }
 
-export interface CLOEAnalysis extends Workflow {
+export interface CLOEStepData {
   oilLevel?: number | null;
   confidence?: number | null;
 }
 
-export interface FencillaAnalysis extends Workflow {
+export interface FencillaStepData {
   isBreak?: boolean | null;
   confidence?: number | null;
 }
 
-export interface ThermalReadingAnalysis extends Workflow {
+export interface ThermalReadingStepData {
   temperature?: number | null;
+}
+
+export interface WorkflowStep {
+  id: string;
+  type: WorkflowStepType;
+  sourceBlobStorageLocation: BlobStorageLocation;
+  destinationBlobStorageLocation: BlobStorageLocation;
+  dateCreated: string;
+  status: WorkflowStatus;
+  anonymizationData?: AnonymizationStepData | null;
+  cloeData?: CLOEStepData | null;
+  fencillaData?: FencillaStepData | null;
+  thermalReadingData?: ThermalReadingStepData | null;
+}
+
+export interface PlantWorkflow {
+  id: string;
+  steps: WorkflowStep[];
 }
 
 export interface PlantData {
@@ -90,10 +108,21 @@ export interface PlantData {
   inspectionDescription?: string | null;
   robotName?: string | null;
   timestamp?: string | null;
-  anonymization: Anonymization;
-  cloeAnalysis?: CLOEAnalysis | null;
-  fencillaAnalysis?: FencillaAnalysis | null;
-  thermalReadingAnalysis?: ThermalReadingAnalysis | null;
+  workflow?: PlantWorkflow | null;
+}
+
+export function getWorkflowStep(
+  workflow: PlantWorkflow | null | undefined,
+  type: WorkflowStepType
+): WorkflowStep | undefined {
+  return workflow?.steps.find((step) => step.type === type);
+}
+
+export function getPlantDataWorkflowStep(
+  plantData: PlantData,
+  type: WorkflowStepType
+): WorkflowStep | undefined {
+  return getWorkflowStep(plantData.workflow, type);
 }
 
 export interface AnalysisMapping {

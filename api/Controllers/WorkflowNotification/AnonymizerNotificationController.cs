@@ -49,7 +49,7 @@ public class AnonymizerWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -84,7 +84,7 @@ public class AnonymizerWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -121,38 +121,47 @@ public class AnonymizerWorkflowNotificationController(
             logger.LogWarning(
                 "Anonymizer workflow failure. Handler is not proceeding to trigger subsequent workflows"
             );
-            return Ok(updatedPlantData);
+            return Ok(new PlantDataResponse(updatedPlantData));
+        }
+
+        var anonymizationStep = updatedPlantData.GetWorkflowStep(WorkflowStepType.Anonymization);
+        if (anonymizationStep == null)
+        {
+            logger.LogError(
+                "Anonymization step is missing after anonymizer exit for InspectionId: {InspectionId}",
+                updatedPlantData.InspectionId
+            );
+            return StatusCode(
+                StatusCodes.Status500InternalServerError,
+                "Anonymization step is missing"
+            );
         }
 
         var message = new SaraVisualizationAvailableMessage
         {
             InspectionId = notification.InspectionId,
-            StorageAccount = updatedPlantData
-                .Anonymization
-                .SourceBlobStorageLocation
-                .StorageAccount,
-            BlobContainer = updatedPlantData.Anonymization.SourceBlobStorageLocation.BlobContainer,
-            BlobName = updatedPlantData.Anonymization.SourceBlobStorageLocation.BlobName,
+            StorageAccount = anonymizationStep.SourceBlobStorageLocation.StorageAccount,
+            BlobContainer = anonymizationStep.SourceBlobStorageLocation.BlobContainer,
+            BlobName = anonymizationStep.SourceBlobStorageLocation.BlobName,
         };
         await mqttPublisherService.PublishSaraVisualizationAvailable(message);
 
-        if (updatedPlantData.CLOEAnalysis is not null)
+        var cloeStep = updatedPlantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis);
+        if (cloeStep != null)
         {
-            await workflowService.TriggerCLOE(
-                updatedPlantData.InspectionId,
-                updatedPlantData.CLOEAnalysis
-            );
+            await workflowService.TriggerCLOE(updatedPlantData.InspectionId, cloeStep);
         }
 
-        if (updatedPlantData.FencillaAnalysis is not null)
+        var fencillaStep = updatedPlantData.GetWorkflowStep(WorkflowStepType.FencillaAnalysis);
+        if (fencillaStep != null)
         {
-            await workflowService.TriggerFencilla(
-                updatedPlantData.InspectionId,
-                updatedPlantData.FencillaAnalysis
-            );
+            await workflowService.TriggerFencilla(updatedPlantData.InspectionId, fencillaStep);
         }
 
-        if (updatedPlantData.ThermalReadingAnalysis is not null)
+        var thermalReadingStep = updatedPlantData.GetWorkflowStep(
+            WorkflowStepType.ThermalReadingAnalysis
+        );
+        if (thermalReadingStep != null)
         {
             if (updatedPlantData.Tag is null || updatedPlantData.InspectionDescription is null)
             {
@@ -170,10 +179,10 @@ public class AnonymizerWorkflowNotificationController(
                 updatedPlantData.Tag,
                 updatedPlantData.InspectionDescription,
                 updatedPlantData.InstallationCode,
-                updatedPlantData.ThermalReadingAnalysis
+                thermalReadingStep
             );
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 }

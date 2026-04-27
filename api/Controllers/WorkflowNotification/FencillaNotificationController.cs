@@ -50,7 +50,7 @@ public class FencillaWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -87,7 +87,7 @@ public class FencillaWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -119,16 +119,21 @@ public class FencillaWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        var fencillaAnalysis =
-            updatedPlantData.FencillaAnalysis
+        var fencillaStep =
+            updatedPlantData.GetWorkflowStep(WorkflowStepType.FencillaAnalysis)
             ?? throw new InvalidOperationException(
                 $"Fencilla analysis is not set up for plant data with inspection id {notification.InspectionId}"
             );
+        var fencillaData =
+            fencillaStep.FencillaData
+            ?? throw new InvalidOperationException(
+                $"Fencilla data is not set up for plant data with inspection id {notification.InspectionId}"
+            );
 
         string? warning = null;
-        if (fencillaAnalysis.IsBreak != null)
+        if (fencillaData.IsBreak != null)
         {
-            if ((bool)fencillaAnalysis.IsBreak)
+            if ((bool)fencillaData.IsBreak)
             {
                 warning = "Breach detected";
             }
@@ -138,22 +143,22 @@ public class FencillaWorkflowNotificationController(
         {
             InspectionId = updatedPlantData.InspectionId,
             AnalysisType = nameof(AnalysisType.Fencilla),
-            Value = fencillaAnalysis.IsBreak.ToString(),
+            Value = fencillaData.IsBreak.ToString(),
             Unit = "bool [isBreach]",
             Warning = warning,
-            Confidence = fencillaAnalysis.Confidence * 100,
+            Confidence = (fencillaData.Confidence ?? 0F) * 100,
         };
 
-        if (fencillaAnalysis.IsBreak == true)
+        if (fencillaData.IsBreak == true)
         {
-            message.StorageAccount = fencillaAnalysis.DestinationBlobStorageLocation.StorageAccount;
-            message.BlobContainer = fencillaAnalysis.DestinationBlobStorageLocation.BlobContainer;
-            message.BlobName = fencillaAnalysis.DestinationBlobStorageLocation.BlobName;
+            message.StorageAccount = fencillaStep.DestinationBlobStorageLocation.StorageAccount;
+            message.BlobContainer = fencillaStep.DestinationBlobStorageLocation.BlobContainer;
+            message.BlobName = fencillaStep.DestinationBlobStorageLocation.BlobName;
             try
             {
                 await emailService.SendFencillaResultEmail(
                     updatedPlantData.InspectionId,
-                    fencillaAnalysis.Confidence,
+                    fencillaData.Confidence,
                     updatedPlantData.InstallationCode
                 );
             }
@@ -166,6 +171,6 @@ public class FencillaWorkflowNotificationController(
 
         await mqttPublisherService.PublishSaraAnalysisResultAvailable(message);
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 }

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using api.Database.Context;
 using api.Database.Models;
 using api.Services;
+using api.Tests;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -98,7 +99,7 @@ namespace api.Controllers.Tests
 
             var updatedPlantData = await _plantDataService.ReadByInspectionId("dummyInsp-001");
             Assert.NotNull(updatedPlantData);
-            Assert.NotNull(updatedPlantData.CLOEAnalysis);
+            Assert.NotNull(updatedPlantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis));
         }
 
         [Fact]
@@ -141,7 +142,7 @@ namespace api.Controllers.Tests
 
             var updatedPlantData = await _plantDataService.ReadByInspectionId("dummyInsp-001");
             Assert.NotNull(updatedPlantData);
-            Assert.NotNull(updatedPlantData.CLOEAnalysis);
+            Assert.NotNull(updatedPlantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis));
         }
     }
 }

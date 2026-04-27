@@ -50,7 +50,7 @@ public class ThermalReadingWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 
     /// <summary>
@@ -108,7 +108,7 @@ public class ThermalReadingWorkflowNotificationController(
         };
         await timeseriesService.TriggerTimeseriesUpload(uploadRequest);
 
-        return Ok(plantData);
+        return Ok(new PlantDataResponse(plantData));
     }
 
     /// <summary>
@@ -140,25 +140,30 @@ public class ThermalReadingWorkflowNotificationController(
             return BadRequest(ex.Message);
         }
 
-        var thermalReadingAnalysis =
-            updatedPlantData.ThermalReadingAnalysis
+        var thermalReadingStep =
+            updatedPlantData.GetWorkflowStep(WorkflowStepType.ThermalReadingAnalysis)
             ?? throw new InvalidOperationException(
                 $"Thermal reading analysis is not set up for plant data with inspection id {notification.InspectionId}"
+            );
+        var thermalReadingData =
+            thermalReadingStep.ThermalReadingData
+            ?? throw new InvalidOperationException(
+                $"Thermal reading data is not set up for plant data with inspection id {notification.InspectionId}"
             );
 
         var message = new SaraAnalysisResultMessage
         {
             InspectionId = updatedPlantData.InspectionId,
             AnalysisType = nameof(AnalysisType.ThermalReading),
-            Value = thermalReadingAnalysis.Temperature.ToString(),
+            Value = thermalReadingData.Temperature.ToString(),
             Unit = "temperature [°C]",
-            StorageAccount = thermalReadingAnalysis.DestinationBlobStorageLocation.StorageAccount,
-            BlobContainer = thermalReadingAnalysis.DestinationBlobStorageLocation.BlobContainer,
-            BlobName = thermalReadingAnalysis.DestinationBlobStorageLocation.BlobName,
+            StorageAccount = thermalReadingStep.DestinationBlobStorageLocation.StorageAccount,
+            BlobContainer = thermalReadingStep.DestinationBlobStorageLocation.BlobContainer,
+            BlobName = thermalReadingStep.DestinationBlobStorageLocation.BlobName,
         };
 
         await mqttPublisherService.PublishSaraAnalysisResultAvailable(message);
 
-        return Ok(updatedPlantData);
+        return Ok(new PlantDataResponse(updatedPlantData));
     }
 }

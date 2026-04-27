@@ -3,6 +3,7 @@ import {
   Table,
   Typography,
 } from "@equinor/eds-core-react";
+import { getPlantDataWorkflowStep } from "../../api/client";
 import type { PlantData } from "../../api/client";
 import { useNavigate } from "react-router";
 import StatusChip from "../../components/StatusChip";
@@ -86,7 +87,11 @@ export default function PlantDataTable({
                   {new Date(row.dateCreated).toLocaleString()}
                 </Table.Cell>
                 <Table.Cell>
-                  <StatusChip status={row.anonymization.status} />
+                  {getPlantDataWorkflowStep(row, "Anonymization") ? (
+                    <StatusChip status={getPlantDataWorkflowStep(row, "Anonymization")!.status} />
+                  ) : (
+                    "-"
+                  )}
                 </Table.Cell>
                 <Table.Cell>
                   <WorkflowTriggerButton

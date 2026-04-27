@@ -1,17 +1,22 @@
+import { getPlantDataWorkflowStep } from "../../api/client";
 import type { PlantData } from "../../api/client";
 import WorkflowSection from "./WorkflowSection";
 
 export default function AnalysisSections({ data }: { data: PlantData }) {
+  const cloeStep = getPlantDataWorkflowStep(data, "CLOEAnalysis");
+  const fencillaStep = getPlantDataWorkflowStep(data, "FencillaAnalysis");
+  const thermalReadingStep = getPlantDataWorkflowStep(data, "ThermalReadingAnalysis");
+
   return (
     <>
       <WorkflowSection
         title="CLOE Analysis"
-        workflow={data.cloeAnalysis}
+        workflow={cloeStep}
         extraFields={
-          data.cloeAnalysis
+          cloeStep
             ? [
-                { label: "Oil Level", value: data.cloeAnalysis.oilLevel?.toString() ?? "-" },
-                { label: "Confidence", value: data.cloeAnalysis.confidence?.toString() ?? "-" },
+                { label: "Oil Level", value: cloeStep.cloeData?.oilLevel?.toString() ?? "-" },
+                { label: "Confidence", value: cloeStep.cloeData?.confidence?.toString() ?? "-" },
               ]
             : undefined
         }
@@ -19,19 +24,19 @@ export default function AnalysisSections({ data }: { data: PlantData }) {
 
       <WorkflowSection
         title="Fencilla Analysis"
-        workflow={data.fencillaAnalysis}
+        workflow={fencillaStep}
         extraFields={
-          data.fencillaAnalysis
+          fencillaStep
             ? [
                 {
                   label: "Is Break",
-                  value: data.fencillaAnalysis.isBreak == null
+                  value: fencillaStep.fencillaData?.isBreak == null
                     ? "-"
-                    : data.fencillaAnalysis.isBreak
+                    : fencillaStep.fencillaData.isBreak
                       ? "Yes"
                       : "No",
                 },
-                { label: "Confidence", value: data.fencillaAnalysis.confidence?.toString() ?? "-" },
+                { label: "Confidence", value: fencillaStep.fencillaData?.confidence?.toString() ?? "-" },
               ]
             : undefined
         }
@@ -39,11 +44,11 @@ export default function AnalysisSections({ data }: { data: PlantData }) {
 
       <WorkflowSection
         title="Thermal Reading Analysis"
-        workflow={data.thermalReadingAnalysis}
+        workflow={thermalReadingStep}
         extraFields={
-          data.thermalReadingAnalysis
+          thermalReadingStep
             ? [
-                { label: "Temperature", value: data.thermalReadingAnalysis.temperature?.toString() ?? "-" },
+                { label: "Temperature", value: thermalReadingStep.thermalReadingData?.temperature?.toString() ?? "-" },
               ]
             : undefined
         }

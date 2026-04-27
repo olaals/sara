@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using api.Controllers.Models;
 using api.Database.Models;
@@ -28,12 +29,12 @@ public class PlantDataController(
     /// </remarks>
     [HttpGet]
     [Authorize(Roles = Role.Any)]
-    [ProducesResponseType(typeof(PagedResponse<PlantData>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PagedResponse<PlantDataResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<PagedResponse<PlantData>>> GetAllPlantData(
+    public async Task<ActionResult<PagedResponse<PlantDataResponse>>> GetAllPlantData(
         [FromQuery] PlantDataParameters parameters
     )
     {
@@ -41,9 +42,9 @@ public class PlantDataController(
         {
             var plantData = await plantDataService.GetPlantData(parameters);
             return Ok(
-                new PagedResponse<PlantData>
+                new PagedResponse<PlantDataResponse>
                 {
-                    Items = plantData,
+                    Items = plantData.Select(entry => new PlantDataResponse(entry)).ToList(),
                     PageNumber = plantData.CurrentPage,
                     PageSize = plantData.PageSize,
                     TotalCount = plantData.TotalCount,
@@ -90,7 +91,11 @@ public class PlantDataController(
                 request.RawDataBlobStorageLocation.BlobContainer,
                 request.RawDataBlobStorageLocation.BlobName
             );
-            return CreatedAtAction(nameof(GetPlantDataById), new { id = plantData.Id }, plantData);
+            return CreatedAtAction(
+                nameof(GetPlantDataById),
+                new { id = plantData.Id },
+                new PlantDataResponse(plantData)
+            );
         }
         catch (Exception e)
         {
@@ -108,12 +113,12 @@ public class PlantDataController(
     [HttpGet]
     [Authorize(Roles = Role.Any)]
     [Route("id/{id}")]
-    [ProducesResponseType(typeof(PlantData), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PlantDataResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<PlantData>> GetPlantDataById([FromRoute] Guid id)
+    public async Task<ActionResult<PlantDataResponse>> GetPlantDataById([FromRoute] Guid id)
     {
         try
         {
@@ -122,7 +127,7 @@ public class PlantDataController(
             {
                 return NotFound($"Could not find plant data with id {id}");
             }
-            return Ok(plantData);
+            return Ok(new PlantDataResponse(plantData));
         }
         catch (Exception e)
         {
@@ -156,7 +161,7 @@ public class PlantDataController(
             {
                 return NotFound($"Could not find plant data with inspection id {inspectionId}");
             }
-            return Ok(plantData);
+            return Ok(new PlantDataResponse(plantData));
         }
         catch (Exception e)
         {
@@ -195,7 +200,15 @@ public class PlantDataController(
                 return NotFound($"Could not find plant data with inspection id {inspectionId}");
             }
 
-            var anonymizerWorkflowStatus = plantData.Anonymization.Status;
+            var anonymizationStep = plantData.GetWorkflowStep(WorkflowStepType.Anonymization);
+            if (anonymizationStep == null)
+            {
+                return NotFound(
+                    $"Could not find anonymization workflow for plant data with inspection id {inspectionId}"
+                );
+            }
+
+            var anonymizerWorkflowStatus = anonymizationStep.Status;
             logger.LogInformation(
                 "Anonymization workflow status for InspectionId: {inspectionId} is {Status}",
                 inspectionId,
@@ -211,7 +224,7 @@ public class PlantDataController(
                         inspectionId,
                         plantDataJson
                     );
-                    return Ok(plantData.Anonymization.DestinationBlobStorageLocation);
+                    return Ok(anonymizationStep.DestinationBlobStorageLocation);
 
                 case WorkflowStatus.NotStarted:
                     return StatusCode(

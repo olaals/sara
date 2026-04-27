@@ -125,9 +125,19 @@ namespace api.MQTT
 
             try
             {
+                var anonymizationStep = plantData.GetWorkflowStep(WorkflowStepType.Anonymization);
+                if (anonymizationStep == null)
+                {
+                    _logger.LogError(
+                        "Anonymization workflow is missing for InspectionId: {InspectionId}",
+                        plantData.InspectionId
+                    );
+                    return;
+                }
+
                 await ArgoWorkflowService.TriggerAnonymizer(
                     plantData.InspectionId,
-                    plantData.Anonymization
+                    anonymizationStep
                 );
             }
             catch (Exception ex)

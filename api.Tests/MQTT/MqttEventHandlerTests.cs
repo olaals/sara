@@ -140,7 +140,7 @@ namespace api.Tests.MQTT
                 s =>
                     s.TriggerAnonymizer(
                         It.IsAny<string>(),
-                        It.IsAny<Database.Models.Anonymization>()
+                        It.IsAny<Database.Models.WorkflowStep>()
                     ),
                 Times.Once
             );

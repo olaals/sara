@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using api.Database.Models;
 using api.Services;
+using api.Tests;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -31,114 +32,59 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnonymizer_ReturnsNotFound_WhenPlantDataDoesNotExist()
         {
-            //Arrange
             var plantDataId = Guid.NewGuid();
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync((PlantData?)null);
 
-            //Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            //Assert
             Assert.IsType<NotFoundObjectResult>(result);
         }
 
         [Fact]
         public async Task TriggerAnonymizer_ReturnsConflict_WhenWorkflowsAlreadyTriggered()
         {
-            //Arrange
             var plantDataId = Guid.NewGuid();
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "dummyInspectionId",
-                        InstallationCode = "dummyInstallationCode",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyRawStorageAccount",
-                                BlobContainer = "dummyRawBlobContainer",
-                                BlobName = "dummyRawBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyAnonStorageAccount",
-                                BlobContainer = "dummyAnonBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            Status = WorkflowStatus.Started,
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "dummyInspectionId",
+                        "dummyInstallationCode",
+                        WorkflowTestFactory.CreateAnonymizationStep(status: WorkflowStatus.Started)
+                    )
                 );
 
-            //Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            //Assert
-            Assert.IsType<ConflictObjectResult>(result);
-            var conflictResult = result as ConflictObjectResult;
+            var conflictResult = Assert.IsType<ConflictObjectResult>(result);
             Assert.Equal(
                 "A workflow in the analysis chain is still running. Wait until the full chain has completed before triggering it again.",
-                conflictResult!.Value
+                conflictResult.Value
             );
         }
 
         [Fact]
         public async Task TriggerAnonymizer_ReturnsConflict_WhenDownstreamWorkflowIsStillRunning()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "dummyInspectionId",
-                        InstallationCode = "dummyInstallationCode",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyRawStorageAccount",
-                                BlobContainer = "dummyRawBlobContainer",
-                                BlobName = "dummyRawBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyAnonStorageAccount",
-                                BlobContainer = "dummyAnonBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            Status = WorkflowStatus.ExitSuccess,
-                        },
-                        FencillaAnalysis = new FencillaAnalysis
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyOutputStorageAccount",
-                                BlobContainer = "dummyOutputBlobContainer",
-                                BlobName = "dummyOutputBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                            Status = WorkflowStatus.Started,
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "dummyInspectionId",
+                        "dummyInstallationCode",
+                        WorkflowTestFactory.CreateAnonymizationStep(
+                            status: WorkflowStatus.ExitSuccess
+                        ),
+                        WorkflowTestFactory.CreateFencillaStep(status: WorkflowStatus.Started)
+                    )
                 );
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            // Assert
             var conflictResult = Assert.IsType<ConflictObjectResult>(result);
             Assert.Equal(
                 "A workflow in the analysis chain is still running. Wait until the full chain has completed before triggering it again.",
@@ -149,102 +95,61 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnonymizer_TriggersWorkflow_WhenPlantDataExistsAndNotStarted()
         {
-            //Arrange
             var plantDataId = Guid.NewGuid();
-
-            var plantData = new PlantData
-            {
-                InspectionId = "dummyInspectionId",
-                InstallationCode = "dummyInstallationCode",
-                Anonymization = new Anonymization
-                {
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyRawStorageAccount",
-                        BlobContainer = "dummyRawBlobContainer",
-                        BlobName = "dummyRawBlobName",
-                    },
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyAnonStorageAccount",
-                        BlobContainer = "dummyAnonBlobContainer",
-                        BlobName = "dummyAnonBlobName",
-                    },
-                },
-            };
+            var plantData = WorkflowTestFactory.CreatePlantData(
+                "dummyInspectionId",
+                "dummyInstallationCode",
+                WorkflowTestFactory.CreateAnonymizationStep()
+            );
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(plantData);
             _argoWorkflowServiceMock.Setup(service =>
-                service.TriggerAnonymizer(It.IsAny<string>(), It.IsAny<Anonymization>())
+                service.TriggerAnonymizer(It.IsAny<string>(), It.IsAny<WorkflowStep>())
             );
 
-            //Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            //Assert
-            Assert.IsType<OkObjectResult>(result);
-            var okResult = result as OkObjectResult;
-            Assert.Equal("Workflow chain triggered successfully.", okResult!.Value);
+            var okResult = Assert.IsType<OkObjectResult>(result);
+            Assert.Equal("Workflow chain triggered successfully.", okResult.Value);
         }
 
         [Fact]
         public async Task TriggerAnonymizer_TriggersWorkflow_WhenWorkflowChainPreviouslySucceeded()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
-            var plantData = new PlantData
-            {
-                InspectionId = "dummyInspectionId",
-                InstallationCode = "dummyInstallationCode",
-                Anonymization = new Anonymization
-                {
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyRawStorageAccount",
-                        BlobContainer = "dummyRawBlobContainer",
-                        BlobName = "dummyRawBlobName",
-                    },
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyAnonStorageAccount",
-                        BlobContainer = "dummyAnonBlobContainer",
-                        BlobName = "dummyAnonBlobName",
-                    },
-                    Status = WorkflowStatus.ExitSuccess,
-                },
-                CLOEAnalysis = new CLOEAnalysis
-                {
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummySourceStorageAccount",
-                        BlobContainer = "dummySourceBlobContainer",
-                        BlobName = "dummySourceBlobName",
-                    },
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyDestinationStorageAccount",
-                        BlobContainer = "dummyDestinationBlobContainer",
-                        BlobName = "dummyDestinationBlobName",
-                    },
-                    Status = WorkflowStatus.ExitSuccess,
-                },
-            };
+            var plantData = WorkflowTestFactory.CreatePlantData(
+                "dummyInspectionId",
+                "dummyInstallationCode",
+                WorkflowTestFactory.CreateAnonymizationStep(status: WorkflowStatus.ExitSuccess),
+                WorkflowTestFactory.CreateCLOEStep(status: WorkflowStatus.ExitSuccess)
+            );
+            var anonymizationStep = plantData.GetRequiredWorkflowStep(
+                WorkflowStepType.Anonymization,
+                plantData.InspectionId
+            );
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(plantData);
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
             Assert.Equal("Workflow chain triggered successfully.", okResult.Value);
             _argoWorkflowServiceMock.Verify(
                 service =>
-                    service.TriggerAnonymizer(plantData.InspectionId, plantData.Anonymization),
+                    service.TriggerAnonymizer(
+                        plantData.InspectionId,
+                        It.Is<WorkflowStep>(step =>
+                            step.SourceBlobStorageLocation.BlobName
+                                == anonymizationStep.SourceBlobStorageLocation.BlobName
+                            && step.DestinationBlobStorageLocation.BlobName
+                                == anonymizationStep.DestinationBlobStorageLocation.BlobName
+                            && step.Status == anonymizationStep.Status
+                        )
+                    ),
                 Times.Once
             );
         }
@@ -252,59 +157,38 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnonymizer_TriggersWorkflow_WhenWorkflowChainPreviouslyFailed()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
-            var plantData = new PlantData
-            {
-                InspectionId = "dummyInspectionId",
-                InstallationCode = "dummyInstallationCode",
-                Anonymization = new Anonymization
-                {
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyRawStorageAccount",
-                        BlobContainer = "dummyRawBlobContainer",
-                        BlobName = "dummyRawBlobName",
-                    },
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyAnonStorageAccount",
-                        BlobContainer = "dummyAnonBlobContainer",
-                        BlobName = "dummyAnonBlobName",
-                    },
-                    Status = WorkflowStatus.ExitFailure,
-                },
-                ThermalReadingAnalysis = new ThermalReadingAnalysis
-                {
-                    SourceBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummySourceStorageAccount",
-                        BlobContainer = "dummySourceBlobContainer",
-                        BlobName = "dummySourceBlobName",
-                    },
-                    DestinationBlobStorageLocation = new BlobStorageLocation
-                    {
-                        StorageAccount = "dummyDestinationStorageAccount",
-                        BlobContainer = "dummyDestinationBlobContainer",
-                        BlobName = "dummyDestinationBlobName",
-                    },
-                    Status = WorkflowStatus.ExitFailure,
-                },
-            };
+            var plantData = WorkflowTestFactory.CreatePlantData(
+                "dummyInspectionId",
+                "dummyInstallationCode",
+                WorkflowTestFactory.CreateAnonymizationStep(status: WorkflowStatus.ExitFailure),
+                WorkflowTestFactory.CreateThermalReadingStep(status: WorkflowStatus.ExitFailure)
+            );
+            var anonymizationStep = plantData.GetRequiredWorkflowStep(
+                WorkflowStepType.Anonymization,
+                plantData.InspectionId
+            );
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(plantData);
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnonymizer(plantDataId);
 
-            // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
             Assert.Equal("Workflow chain triggered successfully.", okResult.Value);
             _argoWorkflowServiceMock.Verify(
                 service =>
-                    service.TriggerAnonymizer(plantData.InspectionId, plantData.Anonymization),
+                    service.TriggerAnonymizer(
+                        plantData.InspectionId,
+                        It.Is<WorkflowStep>(step =>
+                            step.SourceBlobStorageLocation.BlobName
+                                == anonymizationStep.SourceBlobStorageLocation.BlobName
+                            && step.DestinationBlobStorageLocation.BlobName
+                                == anonymizationStep.DestinationBlobStorageLocation.BlobName
+                            && step.Status == anonymizationStep.Status
+                        )
+                    ),
                 Times.Once
             );
         }
@@ -312,17 +196,14 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnalysis_ReturnsNotFound_WhenPlantDataDoesNotExist()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync((PlantData?)null);
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnalysis(plantDataId);
 
-            // Assert
             var notFound = Assert.IsType<NotFoundObjectResult>(result);
             Assert.Equal($"Could not find plant data with id {plantDataId}", notFound.Value);
         }
@@ -330,38 +211,20 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnalysis_ReturnsOk_WhenServiceSucceeds()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "inspection-id",
-                        InstallationCode = "dummy-installation-code",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyStorageAccount",
-                                BlobContainer = "dummyBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "inspection-id",
+                        "dummy-installation-code",
+                        WorkflowTestFactory.CreateAnonymizationStep()
+                    )
                 );
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnalysis(plantDataId);
 
-            // Assert
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(
                 "Triggering anonymization workflow which will trigger analysis workflows.",
@@ -372,39 +235,20 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnalysis_ReturnsConflict_WhenAnonymizationStarted()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "inspection-id",
-                        InstallationCode = "dummy-installation-code",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyStorageAccount",
-                                BlobContainer = "dummyBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                            Status = WorkflowStatus.Started,
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "inspection-id",
+                        "dummy-installation-code",
+                        WorkflowTestFactory.CreateAnonymizationStep(status: WorkflowStatus.Started)
+                    )
                 );
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnalysis(plantDataId);
 
-            // Assert
             var conflict = Assert.IsType<ConflictObjectResult>(result);
             Assert.Equal(
                 "Anonymization is still in progress. Analysis workflows will be triggered once it completes.",
@@ -415,39 +259,22 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnalysis_ReturnsOk_WhenAnonymizationExitSuccessAndNoConfiguredAnalyses()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "inspection-id",
-                        InstallationCode = "dummy-installation-code",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyStorageAccount",
-                                BlobContainer = "dummyBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                            Status = WorkflowStatus.ExitSuccess,
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "inspection-id",
+                        "dummy-installation-code",
+                        WorkflowTestFactory.CreateAnonymizationStep(
+                            status: WorkflowStatus.ExitSuccess
+                        )
+                    )
                 );
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnalysis(plantDataId);
 
-            // Assert
             var ok = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(
                 $"No analysis workflows configured for plant data with Id {plantDataId}.",
@@ -458,57 +285,25 @@ namespace api.Controllers.Tests
         [Fact]
         public async Task TriggerAnalysis_ReturnsOk_WhenAnonymizationExitSuccessAndConfiguredCLOEAnalysis()
         {
-            // Arrange
             var plantDataId = Guid.NewGuid();
 
             _plantDataServiceMock
                 .Setup(service => service.ReadById(plantDataId))
                 .ReturnsAsync(
-                    new PlantData
-                    {
-                        InspectionId = "inspection-id",
-                        InstallationCode = "dummy-installation-code",
-                        Anonymization = new Anonymization
-                        {
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyStorageAccount",
-                                BlobContainer = "dummyBlobContainer",
-                                BlobName = "dummyBlobName",
-                            },
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                            Status = WorkflowStatus.ExitSuccess,
-                        },
-                        CLOEAnalysis = new CLOEAnalysis
-                        {
-                            SourceBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummySourceStorageAccount",
-                                BlobContainer = "dummySourceBlobContainer",
-                                BlobName = "dummySourceBlobName",
-                            },
-                            DestinationBlobStorageLocation = new BlobStorageLocation
-                            {
-                                StorageAccount = "dummyDestinationStorageAccount",
-                                BlobContainer = "dummyDestinationBlobContainer",
-                                BlobName = "dummyDestinationBlobName",
-                            },
-                            Status = WorkflowStatus.NotStarted,
-                        },
-                    }
+                    WorkflowTestFactory.CreatePlantData(
+                        "inspection-id",
+                        "dummy-installation-code",
+                        WorkflowTestFactory.CreateAnonymizationStep(
+                            status: WorkflowStatus.ExitSuccess
+                        ),
+                        WorkflowTestFactory.CreateCLOEStep(status: WorkflowStatus.NotStarted)
+                    )
                 );
 
-            // Act
             var result = await _triggerAnalysisController.TriggerAnalysis(plantDataId);
 
-            // Assert
             var ok = Assert.IsType<OkObjectResult>(result);
-            Assert.Equal($"Triggered analysis workflows: CLOE analysis", ok.Value);
+            Assert.Equal("Triggered analysis workflows: CLOE analysis", ok.Value);
         }
     }
 }

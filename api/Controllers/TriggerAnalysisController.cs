@@ -17,8 +17,8 @@ public class TriggerAnalysisController(
 {
     private readonly ILogger<TriggerAnalysisController> _logger = logger;
 
-    private static bool IsWorkflowRunning(Workflow? workflow) =>
-        workflow?.Status == WorkflowStatus.Started;
+    private static bool IsWorkflowRunning(WorkflowStep? workflowStep) =>
+        workflowStep?.Status == WorkflowStatus.Started;
 
     /// <summary>
     /// Trigger the workflow chain for an existing PlantData entry, by PlantData ID.
@@ -43,11 +43,16 @@ public class TriggerAnalysisController(
             plantData.InspectionId
         );
 
+        var anonymizationStep = plantData.GetWorkflowStep(WorkflowStepType.Anonymization);
+        var cloeStep = plantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis);
+        var fencillaStep = plantData.GetWorkflowStep(WorkflowStepType.FencillaAnalysis);
+        var thermalReadingStep = plantData.GetWorkflowStep(WorkflowStepType.ThermalReadingAnalysis);
+
         if (
-            IsWorkflowRunning(plantData.Anonymization)
-            || IsWorkflowRunning(plantData.CLOEAnalysis)
-            || IsWorkflowRunning(plantData.FencillaAnalysis)
-            || IsWorkflowRunning(plantData.ThermalReadingAnalysis)
+            IsWorkflowRunning(anonymizationStep)
+            || IsWorkflowRunning(cloeStep)
+            || IsWorkflowRunning(fencillaStep)
+            || IsWorkflowRunning(thermalReadingStep)
         )
         {
             return Conflict(
@@ -55,10 +60,14 @@ public class TriggerAnalysisController(
             );
         }
 
-        await argoWorkflowService.TriggerAnonymizer(
-            plantData.InspectionId,
-            plantData.Anonymization
-        );
+        if (anonymizationStep == null)
+        {
+            return Conflict(
+                $"No anonymization workflow configured for plant data with id {plantDataId}."
+            );
+        }
+
+        await argoWorkflowService.TriggerAnonymizer(plantData.InspectionId, anonymizationStep);
 
         return Ok("Workflow chain triggered successfully.");
     }
@@ -88,58 +97,51 @@ public class TriggerAnalysisController(
                 plantData.InspectionId
             );
 
-            if (plantData.Anonymization?.Status == WorkflowStatus.NotStarted)
+            var anonymizationStep = plantData.GetWorkflowStep(WorkflowStepType.Anonymization);
+            var cloeStep = plantData.GetWorkflowStep(WorkflowStepType.CLOEAnalysis);
+            var fencillaStep = plantData.GetWorkflowStep(WorkflowStepType.FencillaAnalysis);
+            var thermalReadingStep = plantData.GetWorkflowStep(
+                WorkflowStepType.ThermalReadingAnalysis
+            );
+
+            if (anonymizationStep is { Status: WorkflowStatus.NotStarted })
             {
                 await argoWorkflowService.TriggerAnonymizer(
                     plantData.InspectionId,
-                    plantData.Anonymization
+                    anonymizationStep
                 );
                 return Ok(
                     "Triggering anonymization workflow which will trigger analysis workflows."
                 );
             }
 
-            if (plantData.Anonymization?.Status == WorkflowStatus.Started)
+            if (anonymizationStep is { Status: WorkflowStatus.Started })
             {
                 return Conflict(
                     "Anonymization is still in progress. Analysis workflows will be triggered once it completes."
                 );
             }
 
-            if (plantData.Anonymization?.Status == WorkflowStatus.ExitFailure)
+            if (anonymizationStep is { Status: WorkflowStatus.ExitFailure })
             {
                 return Conflict("Cannot trigger analysis workflows because anonymization failed.");
             }
 
             var analysesToRun = new List<string>();
-            if (
-                plantData.CLOEAnalysis?.Status == WorkflowStatus.NotStarted
-                || plantData.CLOEAnalysis?.Status == WorkflowStatus.ExitFailure
-            )
+            if (cloeStep is { Status: WorkflowStatus.NotStarted or WorkflowStatus.ExitFailure })
             {
-                await argoWorkflowService.TriggerCLOE(
-                    plantData.InspectionId,
-                    plantData.CLOEAnalysis
-                );
+                await argoWorkflowService.TriggerCLOE(plantData.InspectionId, cloeStep);
                 analysesToRun.Add("CLOE analysis");
             }
-            if (
-                plantData.FencillaAnalysis?.Status == WorkflowStatus.NotStarted
-                || plantData.FencillaAnalysis?.Status == WorkflowStatus.ExitFailure
-            )
+            if (fencillaStep is { Status: WorkflowStatus.NotStarted or WorkflowStatus.ExitFailure })
             {
-                await argoWorkflowService.TriggerFencilla(
-                    plantData.InspectionId,
-                    plantData.FencillaAnalysis
-                );
+                await argoWorkflowService.TriggerFencilla(plantData.InspectionId, fencillaStep);
                 analysesToRun.Add("Fencilla analysis");
             }
 
             if (
-                (
-                    plantData.ThermalReadingAnalysis?.Status == WorkflowStatus.NotStarted
-                    || plantData.ThermalReadingAnalysis?.Status == WorkflowStatus.ExitFailure
-                )
+                thermalReadingStep
+                    is { Status: WorkflowStatus.NotStarted or WorkflowStatus.ExitFailure }
                 && plantData.Tag != null
                 && plantData.InspectionDescription != null
             )
@@ -149,7 +151,7 @@ public class TriggerAnalysisController(
                     plantData.Tag,
                     plantData.InspectionDescription,
                     plantData.InstallationCode,
-                    plantData.ThermalReadingAnalysis
+                    thermalReadingStep
                 );
                 analysesToRun.Add("Thermal Reading analysis");
             }
