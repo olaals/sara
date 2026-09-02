@@ -51,6 +51,7 @@ public class FakeArgoWorkflowClient : IArgoWorkflowClient
 
     public async IAsyncEnumerable<ArgoWorkflowResource> WatchWorkflows(
         string resourceVersion,
+        int timeoutSeconds,
         [EnumeratorCancellation] CancellationToken cancellationToken
     )
     {

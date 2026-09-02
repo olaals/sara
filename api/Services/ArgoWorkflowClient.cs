@@ -26,6 +26,7 @@ public interface IArgoWorkflowClient
 
     IAsyncEnumerable<ArgoWorkflowResource> WatchWorkflows(
         string resourceVersion,
+        int timeoutSeconds,
         CancellationToken cancellationToken
     );
 }
@@ -123,6 +124,7 @@ public class ArgoWorkflowClient(IKubernetes kubernetes, IConfiguration configura
 
     public async IAsyncEnumerable<ArgoWorkflowResource> WatchWorkflows(
         string resourceVersion,
+        int timeoutSeconds,
         [EnumeratorCancellation] CancellationToken cancellationToken
     )
     {
@@ -132,8 +134,10 @@ public class ArgoWorkflowClient(IKubernetes kubernetes, IConfiguration configura
                 Version,
                 _namespace,
                 Plural,
+                allowWatchBookmarks: true,
                 labelSelector: LabelSelector,
                 resourceVersion: resourceVersion,
+                timeoutSeconds: timeoutSeconds,
                 watch: true,
                 cancellationToken: cancellationToken
             );
