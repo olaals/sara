@@ -222,7 +222,7 @@ namespace api.MQTT
                     isarInspectionResultMessage
                 );
             }
-            catch (InvalidOperationException ex)
+            catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
@@ -239,6 +239,18 @@ namespace api.MQTT
                     isarInspectionResultMessage.InspectionDataPath.BlobName,
                     ex.Message,
                     ex.InnerException?.Message
+                );
+                return;
+            }
+
+            if (inspectionRecord is null)
+            {
+                _logger.LogInformation(
+                    "Skipping duplicate ISAR inspection result because an inspection record already exists. "
+                        + "InspectionId: {InspectionId}, TagID: {TagID}, InstallationCode: {InstallationCode}",
+                    isarInspectionResultMessage.InspectionId,
+                    isarInspectionResultMessage.TagId,
+                    isarInspectionResultMessage.InstallationCode
                 );
                 return;
             }

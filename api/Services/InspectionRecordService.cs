@@ -5,12 +5,14 @@ using api.MQTT;
 using api.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace api.Services;
 
 public interface IInspectionRecordService
 {
-    public Task<InspectionRecord> CreateFromMqttMessage(IsarInspectionResultMessage message);
+    /// <summary>Returns null when a record with the inspection ID already exists.</summary>
+    public Task<InspectionRecord?> CreateFromMqttMessage(IsarInspectionResultMessage message);
 
     public Task<InspectionRecord> Create(InspectionRecord inspectionRecord);
 
@@ -82,15 +84,13 @@ public class InspectionRecordService(
 {
     private readonly AnalysisOptions _analysisOptions = analysisOptions.Value;
 
-    public async Task<InspectionRecord> CreateFromMqttMessage(IsarInspectionResultMessage message)
+    public async Task<InspectionRecord?> CreateFromMqttMessage(IsarInspectionResultMessage message)
     {
         var inspectionId = Sanitize.SanitizeUserInput(message.InspectionId);
 
         if (await ExistsByInspectionId(inspectionId))
         {
-            throw new InvalidOperationException(
-                $"Inspection record with inspection id {inspectionId} already exists"
-            );
+            return null;
         }
 
         var analysisGroup =
@@ -154,7 +154,22 @@ public class InspectionRecordService(
             AnalysisGroupId = analysisGroup?.Id,
         };
 
-        return await Create(inspectionRecord);
+        try
+        {
+            return await Create(inspectionRecord);
+        }
+        catch (DbUpdateException ex)
+            when (ex.InnerException
+                    is PostgresException
+                    {
+                        SqlState: PostgresErrorCodes.UniqueViolation,
+                        ConstraintName: "IX_InspectionRecords_InspectionId",
+                    }
+            )
+        {
+            // Another delivery may have inserted the record after the existence check.
+            return null;
+        }
     }
 
     private async Task<AnalysisGroup> GetOrCreateAnalysisGroup(

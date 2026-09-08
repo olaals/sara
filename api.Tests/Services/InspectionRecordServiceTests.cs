@@ -1,13 +1,16 @@
 using System;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using api.Database.Context;
 using api.Database.Models;
 using api.MQTT;
 using api.Services;
 using Api.Test.Database;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -37,7 +40,7 @@ public class InspectionRecordServiceTests : IAsyncLifetime
         GC.SuppressFinalize(this);
     }
 
-    private async Task<InspectionRecord> CreateInScope(IsarInspectionResultMessage message)
+    private async Task<InspectionRecord?> CreateInScope(IsarInspectionResultMessage message)
     {
         using var scope = _factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<IInspectionRecordService>();
@@ -51,6 +54,7 @@ public class InspectionRecordServiceTests : IAsyncLifetime
 
         var created = await CreateInScope(message);
 
+        Assert.NotNull(created);
         await _context.Entry(created).ReloadAsync(TestContext.Current.CancellationToken);
 
         Assert.Null(created.RobotPose);
@@ -72,6 +76,7 @@ public class InspectionRecordServiceTests : IAsyncLifetime
 
         var created = await CreateInScope(message);
 
+        Assert.NotNull(created);
         await _context.Entry(created).ReloadAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(1.0f, created.RobotPose!.Position.X);
@@ -89,11 +94,113 @@ public class InspectionRecordServiceTests : IAsyncLifetime
 
         var created = await CreateInScope(message);
 
+        Assert.NotNull(created);
         var persisted = await _context.InspectionRecords.SingleAsync(
             r => r.Id == created.Id,
             TestContext.Current.CancellationToken
         );
 
         Assert.Equal(message.MissionName, persisted.MissionName);
+    }
+
+    [Fact]
+    public async Task CreateFromMqttMessage_Duplicate_ReturnsNull()
+    {
+        var message = _db.NewIsarInspectionResultMessage();
+
+        Assert.NotNull(await CreateInScope(message));
+        Assert.Null(await CreateInScope(message));
+        Assert.Equal(
+            1,
+            await _context.InspectionRecords.CountAsync(TestContext.Current.CancellationToken)
+        );
+    }
+
+    [Fact]
+    public async Task CreateFromMqttMessage_InsertAfterExistenceCheck_ReturnsNull()
+    {
+        var message = _db.NewIsarInspectionResultMessage(requiredAnalysis: ["per-record-test"]);
+        var interceptor = new BeforeInspectionSaveInterceptor(async () =>
+            Assert.NotNull(await CreateInScope(message))
+        );
+        var options = new DbContextOptionsBuilder<SaraDbContext>()
+            .UseNpgsql(_container.GetConnectionString())
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var context = new SaraDbContext(options);
+        using var scope = _factory.Services.CreateScope();
+        var service = ActivatorUtilities.CreateInstance<InspectionRecordService>(
+            scope.ServiceProvider,
+            context
+        );
+
+        Assert.Null(await service.CreateFromMqttMessage(message));
+        Assert.True(interceptor.Invoked);
+        Assert.Equal(1, await _context.Analyses.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            1,
+            await _context.InspectionRecords.CountAsync(TestContext.Current.CancellationToken)
+        );
+    }
+
+    [Theory]
+    [InlineData(PostgresErrorCodes.UniqueViolation, "IX_AnalysisGroups_GroupId")]
+    [InlineData(PostgresErrorCodes.NotNullViolation, "IX_InspectionRecords_InspectionId")]
+    public async Task CreateFromMqttMessage_UnrelatedDatabaseFailure_IsNotTreatedAsDuplicate(
+        string sqlState,
+        string constraintName
+    )
+    {
+        var failure = new DbUpdateException(
+            "Save failed",
+            new PostgresException(
+                "Database failure",
+                "ERROR",
+                "ERROR",
+                sqlState,
+                constraintName: constraintName
+            )
+        );
+        var options = new DbContextOptionsBuilder<SaraDbContext>()
+            .UseNpgsql(_container.GetConnectionString())
+            .AddInterceptors(new BeforeInspectionSaveInterceptor(() => Task.FromException(failure)))
+            .Options;
+        await using var context = new SaraDbContext(options);
+        using var scope = _factory.Services.CreateScope();
+        var service = ActivatorUtilities.CreateInstance<InspectionRecordService>(
+            scope.ServiceProvider,
+            context
+        );
+
+        var actual = await Assert.ThrowsAsync<DbUpdateException>(() =>
+            service.CreateFromMqttMessage(_db.NewIsarInspectionResultMessage())
+        );
+
+        Assert.Same(failure, actual);
+    }
+
+    private sealed class BeforeInspectionSaveInterceptor(Func<Task> beforeSave)
+        : SaveChangesInterceptor
+    {
+        public bool Invoked { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default
+        )
+        {
+            if (
+                !Invoked
+                && eventData
+                    .Context!.ChangeTracker.Entries<InspectionRecord>()
+                    .Any(entry => entry.State == EntityState.Added)
+            )
+            {
+                await beforeSave();
+                Invoked = true;
+            }
+            return result;
+        }
     }
 }

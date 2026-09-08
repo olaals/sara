@@ -130,6 +130,25 @@ public class EndToEndPipelineTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task DuplicateInspectionResult_DoesNotCreateAnotherRecordOrAnalysisRun()
+    {
+        var message = _db.NewIsarInspectionResultMessage(requiredAnalysis: ["per-record-test"]);
+
+        await ProcessInspectionResultInScope(message);
+        await ProcessInspectionResultInScope(message);
+
+        Assert.Equal(
+            1,
+            await _context.InspectionRecords.CountAsync(TestContext.Current.CancellationToken)
+        );
+        Assert.Equal(
+            1,
+            await _context.AnalysisRuns.CountAsync(TestContext.Current.CancellationToken)
+        );
+        Assert.Single(_factory.ArgoWorkflowClient.Requests);
+    }
+
+    [Fact]
     public async Task BlobDoesNotExist_NoInspectionRecordOrWorkflowCreated_AndNoAnalysisTriggered()
     {
         _factory.BlobStorageService.BlobExists = false;
