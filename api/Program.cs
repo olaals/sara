@@ -198,6 +198,11 @@ builder
 
 var app = builder.Build();
 
+if (openTelemetryEnabled)
+{
+    app.Lifetime.ApplicationStarted.Register(api.Telemetry.SaraMetrics.InitializeBaselines);
+}
+
 string basePath = builder.Configuration["ApiBaseRoute"] ?? "";
 app.UseSwagger(c =>
 {

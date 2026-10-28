@@ -1,5 +1,6 @@
 using api.Database.Context;
 using api.Database.Models;
+using api.Telemetry;
 using Microsoft.EntityFrameworkCore;
 
 namespace api.Services;
@@ -20,6 +21,7 @@ public class AnalysisWorkflowService(
     public async Task BuildAndSubmitAsync(Guid analysisRunId)
     {
         AnalysisRun? run = null;
+        var stage = "build";
         try
         {
             // Each service has its own context; track the inputs here before the builder changes them.
@@ -28,6 +30,8 @@ public class AnalysisWorkflowService(
                 .Include(candidate => candidate.Workflows)
                 .SingleAsync(candidate => candidate.Id == analysisRunId);
             var resource = await graphBuilder.BuildArgoWorkflowAsync(run);
+            SaraMetrics.RecordWorkflowStart(stage, OperationOutcome.Success);
+            stage = "persist_inputs";
             await context.SaveChangesAsync();
             var argoName = resource.Metadata.Name!;
             await context
@@ -36,12 +40,17 @@ public class AnalysisWorkflowService(
                     setters.SetProperty(workflow => workflow.ArgoWorkflowName, argoName)
                 );
 
+            SaraMetrics.RecordWorkflowStart(stage, OperationOutcome.Success);
+            stage = "submit";
             var created = await argoWorkflowClient.CreateWorkflowAsync(resource);
+            SaraMetrics.RecordWorkflowStart(stage, OperationOutcome.Success);
+            stage = "persist_identity";
             await context
                 .Workflows.Where(workflow => workflow.AnalysisRunId == analysisRunId)
                 .ExecuteUpdateAsync(setters =>
                     setters.SetProperty(workflow => workflow.ArgoWorkflowUid, created.Uid)
                 );
+            SaraMetrics.RecordWorkflowStart(stage, OperationOutcome.Success);
             logger.LogInformation(
                 "Submitted Argo Workflow {ArgoWorkflowName} for AnalysisRun {AnalysisRunId} with {StepCount} steps",
                 created.Name,
@@ -51,6 +60,8 @@ public class AnalysisWorkflowService(
         }
         catch (Exception ex)
         {
+            // Record before failure persistence: a database outage must not hide the original failure.
+            SaraMetrics.RecordWorkflowStart(stage, OperationOutcome.Failure);
             if (run is not null)
             {
                 var firstWorkflow = run

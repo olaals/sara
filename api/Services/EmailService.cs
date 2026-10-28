@@ -1,4 +1,5 @@
 using api.Configurations;
+using api.Telemetry;
 using Azure.Core;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
@@ -66,45 +67,65 @@ namespace api.Services
             string installation
         )
         {
-            installation = installation.ToUpperInvariant();
-
-            var recipientEmails = recipient switch
+            var outcome = OperationOutcome.Failure;
+            try
             {
-                EmailTarget.Fencilla => _emailOptions
-                    .Fencilla
-                    .Installations[installation]
-                    .TargetEmails,
-                _ => throw new ArgumentException("No emails found for given email targets"),
-            };
+                installation = installation.ToUpperInvariant();
 
-            var emailGroup = recipient switch
-            {
-                EmailTarget.Fencilla => _emailOptions
-                    .Fencilla
-                    .Installations[installation]
-                    .EmailGroup,
-                _ => throw new ArgumentException("No email found for given email group"),
-            };
-
-            foreach (var targetEmail in recipientEmails)
-            {
-                // Create a new message
-                var message = new Message
+                var recipientEmails = recipient switch
                 {
-                    Subject = subject,
-                    Body = new ItemBody { Content = body, ContentType = BodyType.Text },
-                    ToRecipients =
-                    [
-                        new Recipient { EmailAddress = new EmailAddress { Address = targetEmail } },
-                    ],
+                    EmailTarget.Fencilla => _emailOptions
+                        .Fencilla
+                        .Installations[installation]
+                        .TargetEmails,
+                    _ => throw new ArgumentException("No emails found for given email targets"),
                 };
 
-                // Send the message
-                await appClient
-                    .Users[emailGroup]
-                    .SendMail.PostAsync(
-                        new SendMailPostRequestBody { Message = message, SaveToSentItems = true }
-                    );
+                var emailGroup = recipient switch
+                {
+                    EmailTarget.Fencilla => _emailOptions
+                        .Fencilla
+                        .Installations[installation]
+                        .EmailGroup,
+                    _ => throw new ArgumentException("No email found for given email group"),
+                };
+
+                foreach (var targetEmail in recipientEmails)
+                {
+                    // Create a new message
+                    var message = new Message
+                    {
+                        Subject = subject,
+                        Body = new ItemBody { Content = body, ContentType = BodyType.Text },
+                        ToRecipients =
+                        [
+                            new Recipient
+                            {
+                                EmailAddress = new EmailAddress { Address = targetEmail },
+                            },
+                        ],
+                    };
+
+                    // Send the message
+                    await appClient
+                        .Users[emailGroup]
+                        .SendMail.PostAsync(
+                            new SendMailPostRequestBody
+                            {
+                                Message = message,
+                                SaveToSentItems = true,
+                            }
+                        );
+                }
+                outcome =
+                    recipientEmails.Count == 0
+                        ? OperationOutcome.Skipped
+                        : OperationOutcome.Success;
+            }
+            finally
+            {
+                // One outcome for the logical send, including partial recipient failures.
+                SaraMetrics.RecordDownstreamDelivery("email", "send", outcome);
             }
         }
 
@@ -116,7 +137,10 @@ namespace api.Services
         {
             installation = installation.ToUpperInvariant();
             if (!_emailOptions.Fencilla.Installations.ContainsKey(installation))
+            {
+                SaraMetrics.RecordDownstreamDelivery("email", "send", OperationOutcome.Skipped);
                 return;
+            }
 
             var title = "[AI] Potensielt perimeterbrudd";
             var flotillaImageUrl =

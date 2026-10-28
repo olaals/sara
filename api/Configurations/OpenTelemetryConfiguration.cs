@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using api.Telemetry;
 using Npgsql;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -49,6 +50,7 @@ public static class TelemetryConfigurations
             {
                 m.AddAspNetCoreInstrumentation()
                     .AddMeter(meter.Name)
+                    .AddMeter(SaraMetrics.MeterName)
                     .AddMeter("Microsoft.AspNetCore.Hosting")
                     .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
                     .AddRuntimeInstrumentation()

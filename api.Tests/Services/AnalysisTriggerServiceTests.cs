@@ -7,6 +7,7 @@ using api.Database.Models;
 using api.MQTT;
 using api.Services;
 using Api.Test.Database;
+using Api.Test.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -14,11 +15,48 @@ using Xunit;
 
 namespace Api.Test.Services;
 
+[Collection("Operation metrics")]
 public class AnalysisTriggerServiceTests : IAsyncLifetime
 {
     private static readonly Guid ArgoNameTestRunId = Guid.Parse(
         "01234567-89ab-cdef-0123-456789abcdef"
     );
+
+    [Theory]
+    [InlineData("invalid-workflow", "build")]
+    [InlineData("test-workflow-1", "submit")]
+    public async Task WorkflowStartFailure_RecordsTheFailingStage(string workflowType, string stage)
+    {
+        using var metrics = new MetricsCapture();
+        var record = await _db.NewInspectionRecord();
+        var analysis = await _db.NewAnalysis(type: "per-record-test", inspectionRecords: [record]);
+        var run = await _db.NewAnalysisRun(analysis);
+        run.StartedAt = DateTime.UtcNow;
+        run.Status = AnalysisRunStatus.InProgress;
+        await _db.NewWorkflow(run, workflowType: workflowType);
+        _factory.ArgoWorkflowClient.CreateException = new InvalidOperationException(
+            "Argo unavailable"
+        );
+        using var scope = _factory.Services.CreateScope();
+
+        await Assert.ThrowsAsync<WorkflowTriggerFailedException>(() =>
+            scope
+                .ServiceProvider.GetRequiredService<IAnalysisWorkflowService>()
+                .BuildAndSubmitAsync(run.Id)
+        );
+
+        Assert.Equal(
+            1,
+            metrics.Count("sara_workflow_start", ("stage", stage), ("outcome", "failure"))
+        );
+        Assert.Equal(1, metrics.Count("sara_workflow_start", ("outcome", "failure")));
+        if (stage == "submit")
+            Assert.Equal(
+                1,
+                metrics.Count("sara_workflow_start", ("stage", "build"), ("outcome", "success"))
+            );
+    }
+
     private PostgreSqlContainer _container = null!;
     private TestWebApplicationFactory<Program> _factory = null!;
     private SaraDbContext _context = null!;

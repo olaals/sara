@@ -2,6 +2,7 @@ using System.Text.Json;
 using api.Configurations;
 using api.Database.Context;
 using api.Database.Models;
+using api.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -201,7 +202,7 @@ public class ArgoWorkflowEventProcessor(
                     );
                 if (updated == 0)
                 {
-                    return null;
+                    return (Updated: false, Workflow: (Workflow?)null);
                 }
 
                 Workflow? completedWorkflow = null;
@@ -213,14 +214,26 @@ public class ArgoWorkflowEventProcessor(
                         .SingleAsync(candidate => candidate.Id == workflow.Id, cancellationToken);
                 }
                 await transaction.CommitAsync(cancellationToken);
-                return completedWorkflow;
+                return (Updated: true, Workflow: completedWorkflow);
             });
 
         // Readiness consumers must see committed results. Keep external side effects outside
         // the execution strategy so a transaction retry cannot publish or upload twice.
-        if (completed is not null)
+        // Count only the committed transition, not duplicate watch events or transaction retries.
+        // Ordinary Argo execution failures are covered by the controller alert instead.
+        if (completed.Updated && node.Phase == "Succeeded")
         {
-            await workflowService.OnWorkflowCompleted(completed);
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "validate",
+                completion.Status == WorkflowStatus.Succeeded && !completion.InvalidOutputReference
+                    ? OperationOutcome.Success
+                    : OperationOutcome.Failure
+            );
+        }
+        if (completed.Workflow is not null)
+        {
+            await workflowService.OnWorkflowCompleted(completed.Workflow);
         }
     }
 
@@ -378,11 +391,17 @@ public class ArgoWorkflowEventProcessor(
                 throw new JsonException("Result parameter is missing");
             }
             using var result = JsonDocument.Parse(resultJson);
+            var output = ReadOutputBlobStorageLocation(
+                result.RootElement,
+                node.DisplayName,
+                out var invalidOutput
+            );
             return new WorkflowCompletion(
                 WorkflowStatus.Succeeded,
                 resultJson,
                 null,
-                ReadOutputBlobStorageLocation(result.RootElement, node.DisplayName)
+                output,
+                invalidOutput
             );
         }
         catch (JsonException ex)
@@ -395,8 +414,13 @@ public class ArgoWorkflowEventProcessor(
         }
     }
 
-    private BlobStorageLocation? ReadOutputBlobStorageLocation(JsonElement result, string? nodeName)
+    private BlobStorageLocation? ReadOutputBlobStorageLocation(
+        JsonElement result,
+        string? nodeName,
+        out bool invalidOutput
+    )
     {
+        invalidOutput = false;
         if (
             result.ValueKind != JsonValueKind.Object
             || !result.TryGetProperty("outputBlobStorageLocation", out var output)
@@ -421,6 +445,7 @@ public class ArgoWorkflowEventProcessor(
         }
         catch (JsonException) { }
 
+        invalidOutput = true;
         logger.LogError(
             "Argo node {NodeName} reported an invalid outputBlobStorageLocation; expected nonblank storageAccount, blobContainer and blobName strings. Keeping the result without an output reference",
             nodeName
@@ -451,6 +476,7 @@ public class ArgoWorkflowEventProcessor(
         WorkflowStatus Status,
         string? ResultJson,
         string? ErrorMessage,
-        BlobStorageLocation? OutputBlobStorageLocation = null
+        BlobStorageLocation? OutputBlobStorageLocation = null,
+        bool InvalidOutputReference = false
     );
 }

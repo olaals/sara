@@ -2,6 +2,7 @@ using api.Database.Context;
 using api.Database.Models;
 using api.Services.ResultHandlers.AnalysisResultHandlers;
 using api.Services.ResultHandlers.WorkflowResultHandlers;
+using api.Telemetry;
 using api.Utilities;
 using Microsoft.EntityFrameworkCore;
 
@@ -66,6 +67,11 @@ public class WorkflowService(
 
         if (!_workflowResultHandlersByType.TryGetValue(workflow.WorkflowType, out var handler))
         {
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "handle",
+                OperationOutcome.Skipped
+            );
             logger.LogDebug(
                 "No IWorkflowResultHandler registered for workflow type '{WorkflowType}' — skipping result dispatch for workflow {WorkflowId}",
                 workflow.WorkflowType,
@@ -77,6 +83,12 @@ public class WorkflowService(
         try
         {
             await handler.OnWorkflowCompleted(workflow);
+            // Completion here means the handler returned, not that every downstream system accepted data.
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "handle",
+                OperationOutcome.Success
+            );
         }
         catch (Exception ex)
         {
@@ -85,6 +97,11 @@ public class WorkflowService(
                 "Workflow result handler for type '{WorkflowType}' threw while processing workflow {WorkflowId}",
                 workflow.WorkflowType,
                 workflow.Id
+            );
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "handle",
+                OperationOutcome.Failure
             );
         }
     }
@@ -97,6 +114,11 @@ public class WorkflowService(
 
         if (analysis is null)
         {
+            SaraMetrics.RecordResultProcessing(
+                "unknown",
+                "analysis_handle",
+                OperationOutcome.Failure
+            );
             logger.LogError(
                 "Analysis {AnalysisId} not found when dispatching result handler for run {AnalysisRunId}",
                 run.AnalysisId,
@@ -107,6 +129,11 @@ public class WorkflowService(
 
         if (!_analysisResultHandlersByName.TryGetValue(analysis.AnalysisType, out var handler))
         {
+            SaraMetrics.RecordResultProcessing(
+                "unknown",
+                "analysis_handle",
+                OperationOutcome.Skipped
+            );
             logger.LogDebug(
                 "No IAnalysisResultHandler registered for analysis '{AnalysisName}' — skipping result dispatch for run {AnalysisRunId}",
                 analysis.AnalysisType,
@@ -118,6 +145,11 @@ public class WorkflowService(
         try
         {
             await handler.OnAnalysisCompleted(analysis, run);
+            SaraMetrics.RecordResultProcessing(
+                "unknown",
+                "analysis_handle",
+                OperationOutcome.Success
+            );
         }
         catch (Exception ex)
         {
@@ -126,6 +158,11 @@ public class WorkflowService(
                 "Analysis result handler for '{AnalysisName}' threw while processing run {AnalysisRunId}",
                 analysis.AnalysisType,
                 run.Id
+            );
+            SaraMetrics.RecordResultProcessing(
+                "unknown",
+                "analysis_handle",
+                OperationOutcome.Failure
             );
         }
     }

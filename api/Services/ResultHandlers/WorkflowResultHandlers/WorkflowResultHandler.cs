@@ -1,5 +1,6 @@
 using System.Text.Json;
 using api.Database.Models;
+using api.Telemetry;
 
 namespace api.Services.ResultHandlers.WorkflowResultHandlers;
 
@@ -23,6 +24,11 @@ internal static class WorkflowResultHandlerHelpers
     {
         if (string.IsNullOrWhiteSpace(workflow.ResultJson))
         {
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "deserialize",
+                OperationOutcome.Failure
+            );
             logger.LogWarning(
                 "Workflow {WorkflowType} (Id: {WorkflowId}) has no ResultJson",
                 workflow.WorkflowType,
@@ -33,10 +39,21 @@ internal static class WorkflowResultHandlerHelpers
 
         try
         {
-            return JsonSerializer.Deserialize<T>(workflow.ResultJson, JsonOptions);
+            var result = JsonSerializer.Deserialize<T>(workflow.ResultJson, JsonOptions);
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "deserialize",
+                result is null ? OperationOutcome.Failure : OperationOutcome.Success
+            );
+            return result;
         }
         catch (JsonException ex)
         {
+            SaraMetrics.RecordResultProcessing(
+                workflow.WorkflowType,
+                "deserialize",
+                OperationOutcome.Failure
+            );
             logger.LogError(
                 ex,
                 "Failed to deserialize ResultJson for workflow {WorkflowType} (Id: {WorkflowId}) as {ResultType}: {Json}",

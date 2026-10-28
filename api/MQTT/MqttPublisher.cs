@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using api.Telemetry;
 using MQTTnet.Extensions.ManagedClient;
 
 namespace api.MQTT
@@ -32,42 +33,59 @@ namespace api.MQTT
         public Task PublishSaraInspectionRecordAvailable(
             SaraInspectionRecordAvailableMessage inspectionRecordAvailableMessage
         ) =>
-            PublishAsync(
+            SerializeAndPublishAsync(
                 "sara/inspection_record_available",
-                JsonSerializer.Serialize(inspectionRecordAvailableMessage, serializerOptions)
+                inspectionRecordAvailableMessage,
+                "enqueue_inspection_record"
             );
 
         public async Task PublishSaraVisualizationAvailable(
             SaraVisualizationAvailableMessage visualizationAvailableMessage
         )
         {
-            var payload = JsonSerializer.Serialize(
-                visualizationAvailableMessage,
-                serializerOptions
-            );
             var topic = "sara/visualization_available";
-            await PublishAsync(topic, payload);
+            await SerializeAndPublishAsync(
+                topic,
+                visualizationAvailableMessage,
+                "enqueue_visualization"
+            );
         }
 
         public async Task PublishSaraAnalysisResultAvailable(
             SaraAnalysisResultMessage analysisResultMessage
         )
         {
-            var payload = JsonSerializer.Serialize(analysisResultMessage, serializerOptions);
             var topic = "sara/analysis_result_available";
-            await PublishAsync(topic, payload);
+            await SerializeAndPublishAsync(topic, analysisResultMessage, "enqueue_analysis_result");
         }
 
-        private async Task PublishAsync(string topic, string payload)
+        private async Task SerializeAndPublishAsync<T>(string topic, T message, string operation)
+        {
+            string payload;
+            try
+            {
+                payload = JsonSerializer.Serialize(message, serializerOptions);
+            }
+            catch
+            {
+                SaraMetrics.RecordDownstreamDelivery("mqtt", operation, OperationOutcome.Failure);
+                throw;
+            }
+            await PublishAsync(topic, payload, operation);
+        }
+
+        private async Task PublishAsync(string topic, string payload, string operation)
         {
             _logger.LogInformation("Topic: {topic} - Payload to send: \n{payload}", topic, payload);
 
             try
             {
                 await _mqttClient.EnqueueAsync(topic, payload);
+                SaraMetrics.RecordDownstreamDelivery("mqtt", operation, OperationOutcome.Success);
             }
             catch (Exception ex)
             {
+                SaraMetrics.RecordDownstreamDelivery("mqtt", operation, OperationOutcome.Failure);
                 _logger.LogError(
                     "Could not send MQTT message '{message}' object on topic '{topic}'. {exception}",
                     payload,

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using api.MQTT;
+using api.Telemetry;
 
 namespace api.Services;
 
@@ -50,10 +51,14 @@ public interface ITimeseriesService
     );
 }
 
-public class TimeseriesService(IConfiguration configuration, ILogger<TimeseriesService> logger)
-    : ITimeseriesService
+public class TimeseriesService(
+    IConfiguration configuration,
+    ILogger<TimeseriesService> logger,
+    HttpClient? httpClient = null
+) : ITimeseriesService
 {
-    private static readonly HttpClient client = new();
+    private static readonly HttpClient SharedClient = new();
+    private readonly HttpClient client = httpClient ?? SharedClient;
     private readonly string _baseUrl =
         configuration["SARATimeseriesBaseUrl"]
         ?? throw new InvalidOperationException("SARATimeseriesBaseUrl is not configured.");
@@ -65,38 +70,54 @@ public class TimeseriesService(IConfiguration configuration, ILogger<TimeseriesS
     public async Task TriggerTimeseriesUpload(TriggerTimeseriesUploadRequest uploadRequest)
     {
         if (_baseUrl == "")
+        {
+            SaraMetrics.RecordDownstreamDelivery("timeseries", "upload", OperationOutcome.Skipped);
             return;
-
-        var url = $"{_baseUrl}/timeseries/datapoint";
-
-        var json = JsonSerializer.Serialize(uploadRequest, useCamelCaseOption);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        var response = await client.PostAsync(url, content);
-
-        if (response.IsSuccessStatusCode)
-        {
-            var uploadResponse =
-                await response.Content.ReadFromJsonAsync<TriggerTimeseriesUploadResponse>(
-                    useCamelCaseOption
-                );
-            logger.LogInformation(
-                "Successfully uploaded datapoint with name: {Name} and description: {Description} to Timeseries. TimeseriesId: {TimeseriesId}",
-                uploadRequest.Name,
-                uploadRequest.Description,
-                uploadResponse?.TimeseriesId
-            );
         }
-        else
+
+        var outcome = OperationOutcome.Failure;
+        try
         {
-            var errorMessage = await response.Content.ReadAsStringAsync();
-            logger.LogError(
-                "Failed to upload datapoint with name: {Name} and description: {Description} to Timeseries with statusCode: '{StatusCode}' and message: '{Message}'.",
-                uploadRequest.Name,
-                uploadRequest.Description,
-                response.StatusCode,
-                errorMessage
-            );
+            var url = $"{_baseUrl}/timeseries/datapoint";
+
+            var json = JsonSerializer.Serialize(uploadRequest, useCamelCaseOption);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await client.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var uploadResponse =
+                    await response.Content.ReadFromJsonAsync<TriggerTimeseriesUploadResponse>(
+                        useCamelCaseOption
+                    );
+                outcome =
+                    uploadResponse is not null && uploadResponse.StatusCode < 400
+                        ? OperationOutcome.Success
+                        : OperationOutcome.Failure;
+                logger.LogInformation(
+                    "Successfully uploaded datapoint with name: {Name} and description: {Description} to Timeseries. TimeseriesId: {TimeseriesId}",
+                    uploadRequest.Name,
+                    uploadRequest.Description,
+                    uploadResponse?.TimeseriesId
+                );
+            }
+            else
+            {
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                logger.LogError(
+                    "Failed to upload datapoint with name: {Name} and description: {Description} to Timeseries with statusCode: '{StatusCode}' and message: '{Message}'.",
+                    uploadRequest.Name,
+                    uploadRequest.Description,
+                    response.StatusCode,
+                    errorMessage
+                );
+            }
+        }
+        finally
+        {
+            // Includes non-success responses that are logged rather than thrown.
+            SaraMetrics.RecordDownstreamDelivery("timeseries", "upload", outcome);
         }
     }
 
@@ -105,32 +126,49 @@ public class TimeseriesService(IConfiguration configuration, ILogger<TimeseriesS
     )
     {
         if (_baseUrl == "")
+        {
+            SaraMetrics.RecordDownstreamDelivery(
+                "timeseries",
+                "fetch_co2",
+                OperationOutcome.Skipped
+            );
             return null;
-
-        var url = $"{_baseUrl}/timeseries/get-co2-concentration";
-
-        var json = JsonSerializer.Serialize(fetchRequest, useCamelCaseOption);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-        var response = await client.PostAsync(url, content);
-
-        if (response.IsSuccessStatusCode)
-        {
-            return await response.Content.ReadFromJsonAsync<double?>();
         }
-        else
+
+        var outcome = OperationOutcome.Failure;
+        try
         {
-            var errorMessage = await response.Content.ReadAsStringAsync();
-            logger.LogError(
-                "Failed to fetch CO2 concentration from Timeseries with statusCode: '{StatusCode}' and message: '{Message}'",
-                response.StatusCode,
-                errorMessage
-            );
-            throw new HttpRequestException(
-                errorMessage ?? "Failed to fetch CO2 concentration from Timeseries",
-                null,
-                response.StatusCode
-            );
+            var url = $"{_baseUrl}/timeseries/get-co2-concentration";
+
+            var json = JsonSerializer.Serialize(fetchRequest, useCamelCaseOption);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await client.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var value = await response.Content.ReadFromJsonAsync<double?>();
+                outcome = value is null ? OperationOutcome.Skipped : OperationOutcome.Success;
+                return value;
+            }
+            else
+            {
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                logger.LogError(
+                    "Failed to fetch CO2 concentration from Timeseries with statusCode: '{StatusCode}' and message: '{Message}'",
+                    response.StatusCode,
+                    errorMessage
+                );
+                throw new HttpRequestException(
+                    errorMessage ?? "Failed to fetch CO2 concentration from Timeseries",
+                    null,
+                    response.StatusCode
+                );
+            }
+        }
+        finally
+        {
+            SaraMetrics.RecordDownstreamDelivery("timeseries", "fetch_co2", outcome);
         }
     }
 }

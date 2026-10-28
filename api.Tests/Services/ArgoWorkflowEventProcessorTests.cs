@@ -6,6 +6,7 @@ using api.Database.Context;
 using api.Database.Models;
 using api.Services;
 using Api.Test.Database;
+using Api.Test.Telemetry;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -13,6 +14,7 @@ using Xunit;
 
 namespace Api.Test.Services;
 
+[Collection("Operation metrics")]
 public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
 {
     private PostgreSqlContainer _container = null!;
@@ -72,6 +74,7 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
     [Fact]
     public async Task GateOmittedNodes_MarkRunSkipped()
     {
+        using var metrics = new MetricsCapture();
         var analysis = await _db.NewAnalysis();
         var run = await _db.NewAnalysisRun(analysis);
         run.Status = AnalysisRunStatus.InProgress;
@@ -93,6 +96,7 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
         Assert.Equal(AnalysisRunStatus.Skipped, run.Status);
         Assert.Contains("test-gate gate matched", run.SkipReason);
         Assert.Single(_factory.ArgoWorkflowClient.ReconciledWorkflows);
+        Assert.Equal(0, metrics.Count("sara_result_processing", ("outcome", "failure")));
     }
 
     [Theory]
@@ -100,6 +104,7 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
     [InlineData(true)]
     public async Task DuplicateTerminalEvent_RetriesAcknowledgmentWithoutRedispatch(bool patchFails)
     {
+        using var metrics = new MetricsCapture();
         var record = await _db.NewInspectionRecord(inspectionId: "inspection-cloe");
         var analysis = await _db.NewAnalysis(inspectionRecords: [record]);
         var run = await _db.NewAnalysisRun(analysis);
@@ -129,7 +134,34 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
         await Process(run, "Succeeded", node);
 
         Assert.Single(_factory.MqttPublisher.AnalysisResultMessages);
+        Assert.Equal(
+            1,
+            metrics.Count("sara_result_processing", ("stage", "validate"), ("outcome", "success"))
+        );
         Assert.Equal(patchFails ? 1 : 2, _factory.ArgoWorkflowClient.ReconciledWorkflows.Count);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-json")]
+    [InlineData("{\"outputBlobStorageLocation\":{\"storageAccount\":\"\"}}")]
+    public async Task InvalidResult_CountsOneFailureAcrossDuplicateEvents(string? result)
+    {
+        using var metrics = new MetricsCapture();
+        var analysis = await _db.NewAnalysis();
+        var run = await _db.NewAnalysisRun(analysis);
+        run.Status = AnalysisRunStatus.InProgress;
+        var workflow = await _db.NewWorkflow(run, workflowType: "test-workflow-1");
+        SetArgoIdentity(run, "argo-uid");
+        await _context.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        await Process(run, "Succeeded", Node(workflow, "Succeeded", result));
+        await Process(run, "Succeeded", Node(workflow, "Succeeded", result));
+
+        Assert.Equal(
+            1,
+            metrics.Count("sara_result_processing", ("stage", "validate"), ("outcome", "failure"))
+        );
     }
 
     private const string ReadyResult = """
@@ -215,6 +247,7 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
     [InlineData("Error")]
     public async Task FailedWorkflow_IsAcknowledgedAfterEveryStepIsReconciled(string phase)
     {
+        using var metrics = new MetricsCapture();
         var analysis = await _db.NewAnalysis();
         var run = await _db.NewAnalysisRun(analysis);
         run.Status = AnalysisRunStatus.InProgress;
@@ -234,6 +267,7 @@ public class ArgoWorkflowEventProcessorTests : IAsyncLifetime
         await _context.Entry(second).ReloadAsync(TestContext.Current.CancellationToken);
         Assert.Equal(WorkflowStatus.Skipped, second.Status);
         Assert.Single(_factory.ArgoWorkflowClient.ReconciledWorkflows);
+        Assert.Equal(0, metrics.Count("sara_result_processing", ("outcome", "failure")));
     }
 
     [Theory]
