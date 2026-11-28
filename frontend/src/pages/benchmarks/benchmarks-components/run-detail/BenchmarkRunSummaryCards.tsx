@@ -2,6 +2,7 @@ import styled from "styled-components";
 import type { BenchmarkMetrics } from "../../../../api/benchmarkClient";
 import StatCard from "../../../../components/StatCard";
 import { formatMetricValue, formatNumber } from "../benchmarkFormatting";
+import { getSummaryMetricDescription } from "./benchmarkMetricDescriptions";
 
 const StatsGrid = styled.div`
   display: grid;
@@ -23,6 +24,7 @@ export default function BenchmarkRunSummaryCards({
         title="Throughput"
         value={`${formatNumber(metrics.processing.per_second, 2)} ${metrics.processing.unit}/s`}
         subtitle={`${metrics.processing.count} in ${formatNumber(metrics.processing.seconds, 1)}s`}
+        tooltip={getSummaryMetricDescription("throughput")}
       />
       {metrics.summary_metrics.map((metric) => (
         <StatCard
@@ -30,6 +32,7 @@ export default function BenchmarkRunSummaryCards({
           title={metric.label}
           value={formatMetricValue(metric.value, metric.format)}
           subtitle={metric.subtitle ?? undefined}
+          tooltip={metric.description ?? getSummaryMetricDescription(metric.key)}
         />
       ))}
     </StatsGrid>

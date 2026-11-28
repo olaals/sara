@@ -74,6 +74,7 @@ export interface BenchmarkSummaryMetric {
   value: number | null;
   format: BenchmarkMetricFormat;
   subtitle?: string | null;
+  description?: string | null;
   primary: boolean;
 }
 

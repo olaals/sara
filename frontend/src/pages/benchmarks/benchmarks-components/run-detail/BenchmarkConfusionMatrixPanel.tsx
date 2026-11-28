@@ -6,6 +6,7 @@ import DashboardPanel from "../../../../components/DashboardPanel";
 import StatCard from "../../../../components/StatCard";
 import { statusColors, TableScroller } from "../../../../components/Styles";
 import { formatPercent } from "../benchmarkFormatting";
+import { getBinaryClassificationDescriptions } from "./benchmarkMetricDescriptions";
 import {
   computeBinaryClassificationStats,
   computeMatrixTotals,
@@ -77,6 +78,10 @@ function BinaryClassificationStatsGrid({
 }) {
   const positivePct = (stats.positiveShare ?? 0) * 100;
   const negativePct = (stats.negativeShare ?? 0) * 100;
+  const descriptions = getBinaryClassificationDescriptions(
+    stats.positiveLabel,
+    stats.negativeLabel
+  );
 
   return (
     <>
@@ -85,26 +90,31 @@ function BinaryClassificationStatsGrid({
           title="Accuracy"
           value={formatPercent(stats.accuracy)}
           subtitle={`${stats.tp + stats.tn} / ${stats.total} images`}
+          tooltip={descriptions.accuracy}
         />
         <StatCard
           title="Precision"
           value={formatPercent(stats.precision)}
           subtitle={`TP ${stats.tp} / ${stats.tp + stats.fp} pred`}
+          tooltip={descriptions.precision}
         />
         <StatCard
           title="Recall / Sensitivity"
           value={formatPercent(stats.recall)}
           subtitle={`TP ${stats.tp} / ${stats.positives} ${stats.positiveLabel}`}
+          tooltip={descriptions.recall}
         />
         <StatCard
           title="Specificity"
           value={formatPercent(stats.specificity)}
           subtitle={`TN ${stats.tn} / ${stats.negatives} ${stats.negativeLabel}`}
+          tooltip={descriptions.specificity}
         />
         <StatCard
           title="F1 Score"
           value={formatPercent(stats.f1)}
           subtitle="Harmonic mean of P & R"
+          tooltip={descriptions.f1}
         />
         <StatCard
           title="Miss Rate (FNR)"
@@ -117,6 +127,7 @@ function BinaryClassificationStatsGrid({
                 : "success"
           }
           subtitle={`FN ${stats.fn} / ${stats.positives} ${stats.positiveLabel}`}
+          tooltip={descriptions.falseNegativeRate}
         />
         <StatCard
           title="False Positive Rate"
@@ -129,12 +140,14 @@ function BinaryClassificationStatsGrid({
                 : "success"
           }
           subtitle={`FP ${stats.fp} / ${stats.negatives} ${stats.negativeLabel}`}
+          tooltip={descriptions.falsePositiveRate}
         />
         <StatCard
           title="Class Balance"
           value={`${formatPercent(stats.positiveShare)} / ${formatPercent(stats.negativeShare)}`}
           tone="info"
           subtitle={`${stats.positives} ${stats.positiveLabel} · ${stats.negatives} ${stats.negativeLabel}`}
+          tooltip={descriptions.classBalance}
         />
       </StatsGrid>
 
