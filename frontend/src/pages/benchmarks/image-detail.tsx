@@ -10,7 +10,10 @@ import { benchmarkRunDetailPath } from "./benchmarks-components/benchmarkFormatt
 import BenchmarkAnnotationsTable from "./benchmarks-components/image-comparison/BenchmarkAnnotationsTable";
 import BenchmarkComparisonViewer from "./benchmarks-components/image-comparison/BenchmarkComparisonViewer";
 import BenchmarkImageHeaderBar from "./benchmarks-components/image-comparison/BenchmarkImageHeaderBar";
-import { useBenchmarkImageObjectUrl } from "./benchmarks-components/image-comparison/useBenchmarkImageObjectUrl";
+import {
+  useBenchmarkImageObjectUrl,
+  useBenchmarkReferenceImageObjectUrl,
+} from "./benchmarks-components/image-comparison/useBenchmarkImageObjectUrl";
 
 export default function BenchmarkImageDetailPage() {
   const navigate = useNavigate();
@@ -32,6 +35,7 @@ export default function BenchmarkImageDetailPage() {
     runId,
     imageId
   );
+  const comparison = comparisonQuery.data;
   const { imageUrl, imageError } = useBenchmarkImageObjectUrl(
     datasetId,
     version,
@@ -39,6 +43,15 @@ export default function BenchmarkImageDetailPage() {
     runId,
     imageId
   );
+  const { imageUrl: referenceImageUrl, imageError: referenceImageError } =
+    useBenchmarkReferenceImageObjectUrl(
+      datasetId,
+      version,
+      split,
+      runId,
+      imageId,
+      Boolean(comparison?.reference)
+    );
 
   const orderedImageIds = useMemo(
     () => (runDetailQuery.data?.perImage?.items ?? []).map((item) => item.image_id),
@@ -52,7 +65,6 @@ export default function BenchmarkImageDetailPage() {
       : null;
 
   const runPath = benchmarkRunDetailPath(datasetId, version, split, runId);
-  const comparison = comparisonQuery.data;
 
   return (
     <PageHeader
@@ -75,13 +87,17 @@ export default function BenchmarkImageDetailPage() {
         onNext={() => nextImageId && navigate(`${runPath}/images/${nextImageId}`)}
       />
 
-      {(comparisonQuery.error || imageError) && (
+      {(comparisonQuery.error || imageError || referenceImageError) && (
         <ErrorText variant="body_short" style={{ marginBottom: "1rem" }}>
-          {comparisonQuery.error?.message ?? imageError}
+          {comparisonQuery.error?.message ?? imageError ?? referenceImageError}
         </ErrorText>
       )}
 
-      <BenchmarkComparisonViewer comparison={comparison} imageUrl={imageUrl} />
+      <BenchmarkComparisonViewer
+        comparison={comparison}
+        imageUrl={imageUrl}
+        referenceImageUrl={referenceImageUrl}
+      />
 
       {comparison && (
         <BenchmarkAnnotationsTable

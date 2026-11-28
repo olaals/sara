@@ -29,6 +29,10 @@ export function formatMetricValue(
       return typeof value === "number" ? String(Math.round(value)) : String(value);
     case "boolean":
       return typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
+    case "celsius":
+      return typeof value === "number" ? `${formatNumber(value, 2)} °C` : String(value);
+    case "pixels":
+      return typeof value === "number" ? `${formatNumber(value, 1)} px` : String(value);
     default:
       return String(value);
   }
@@ -41,6 +45,10 @@ export function formatMethodLabel(method?: string | null): string {
       return "Segmentation";
     case "bounding_box":
       return "Bounding box";
+    case "phase_correlation":
+      return "Phase correlation";
+    case "orb_bf":
+      return "ORB + BFMatcher";
     default:
       return method;
   }
@@ -51,6 +59,12 @@ function formatConfigEntry(key: string, value: BenchmarkCellValue): string | nul
   if (key === "model") return String(value);
   if (key === "confidence_threshold" || key === "confidence-threshold") {
     return `conf ${value}`;
+  }
+  if (key === "iou_threshold" || key === "iou-threshold") {
+    return `IoU >= ${value}`;
+  }
+  if (key === "temperature_percentile") {
+    return `P${value}`;
   }
   if (key === "box_padding" || key === "box-padding") {
     const num = Number(value);

@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using api.Controllers.Models;
 
-namespace api.Services;
+namespace api.Services.BenchmarkServices.DatasetFormats;
 
 public record CocoImageEntry(int Id, string FileName, int Width, int Height);
 

@@ -23,6 +23,7 @@ export interface BenchmarkDataset {
   label: string;
   description: string;
   container: string;
+  format: string;
   defaultSplit: string;
   devices: string[];
   methods: string[];
@@ -62,6 +63,8 @@ export type BenchmarkMetricFormat =
   | "number"
   | "integer"
   | "boolean"
+  | "celsius"
+  | "pixels"
   | "text"
   | string;
 
@@ -174,15 +177,25 @@ export interface BenchmarkCocoAnnotation {
   segmentation?: CocoSegmentation | null;
 }
 
+export interface BenchmarkReferenceImage {
+  referenceId: string;
+  fileName: string;
+  width: number;
+  height: number;
+  annotations: BenchmarkCocoAnnotation[];
+}
+
 export interface BenchmarkImageComparison {
   imageId: number;
   fileName: string;
   width: number;
   height: number;
+  format: string;
   summaryColumns: BenchmarkPerImageColumn[];
   summary?: BenchmarkImageResult | null;
   groundTruth: BenchmarkCocoAnnotation[];
   predictions: BenchmarkCocoAnnotation[];
+  reference?: BenchmarkReferenceImage | null;
 }
 
 const ACTIVE_PHASES = new Set(["Pending", "Running", ""]);
@@ -291,6 +304,21 @@ export function getBenchmarkImageUrl(
   return fetchAuthenticatedBlobUrl(
     apiUrl(
       `/api/benchmark/results/${encodeURIComponent(runId)}/images/${imageId}/image?${query}`
+    )
+  );
+}
+
+export function getBenchmarkReferenceImageUrl(
+  datasetId: string,
+  version: string,
+  split: string,
+  runId: string,
+  imageId: number
+): Promise<string> {
+  const query = new URLSearchParams({ datasetId, version, split });
+  return fetchAuthenticatedBlobUrl(
+    apiUrl(
+      `/api/benchmark/results/${encodeURIComponent(runId)}/images/${imageId}/reference-image?${query}`
     )
   );
 }

@@ -14,6 +14,11 @@ export const PRED_COLOR: OverlayColor = {
   stroke: "#ff2a6d",
 };
 
+export const REF_COLOR: OverlayColor = {
+  fill: [0, 180, 216, 100],
+  stroke: "#00d4ff",
+};
+
 export const LegendSwatch = styled.span<{ $color: string }>`
   display: inline-block;
   width: 12px;

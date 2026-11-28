@@ -19,6 +19,7 @@ public record BenchmarkDatasetDto(
     string Label,
     string Description,
     string Container,
+    string Format,
     string DefaultSplit,
     IReadOnlyList<string> Devices,
     IReadOnlyList<string> Methods,
@@ -156,13 +157,23 @@ public record BenchmarkCocoAnnotationDto(
     JsonElement? Segmentation
 );
 
+public record BenchmarkReferenceImageDto(
+    string ReferenceId,
+    string FileName,
+    int Width,
+    int Height,
+    IReadOnlyList<BenchmarkCocoAnnotationDto> Annotations
+);
+
 public record BenchmarkImageComparisonDto(
     int ImageId,
     string FileName,
     int Width,
     int Height,
+    string Format,
     IReadOnlyList<BenchmarkPerImageColumnDto> SummaryColumns,
     BenchmarkImageResultDto? Summary,
     IReadOnlyList<BenchmarkCocoAnnotationDto> GroundTruth,
-    IReadOnlyList<BenchmarkCocoAnnotationDto> Predictions
+    IReadOnlyList<BenchmarkCocoAnnotationDto> Predictions,
+    BenchmarkReferenceImageDto? Reference = null
 );

@@ -115,6 +115,8 @@ export function drawCocoAnnotations(
 
       const [r, g, b, a] = color.fill;
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+      ctx.strokeStyle = color.stroke;
+      ctx.lineWidth = Math.max(2, Math.round(Math.max(width, height) / 400));
       for (const ann of annotations) {
         if (!Array.isArray(ann.segmentation)) continue;
         for (const poly of ann.segmentation) {
@@ -126,6 +128,7 @@ export function drawCocoAnnotations(
           }
           ctx.closePath();
           ctx.fill();
+          ctx.stroke();
         }
       }
     }
