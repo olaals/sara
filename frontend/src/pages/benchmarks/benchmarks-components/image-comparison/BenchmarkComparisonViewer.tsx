@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Checkbox, Typography } from "@equinor/eds-core-react";
 import styled from "styled-components";
 import type { BenchmarkImageComparison } from "../../../../api/benchmarkClient";
@@ -8,6 +8,7 @@ import BenchmarkMaskCanvas, {
   GT_COLOR,
   LegendSwatch,
   PRED_COLOR,
+  REF_COLOR,
   type OverlayLayer,
 } from "./BenchmarkMaskCanvas";
 
@@ -38,17 +39,25 @@ const SideBySideGrid = styled.div`
 interface BenchmarkComparisonViewerProps {
   comparison?: BenchmarkImageComparison;
   imageUrl: string | null;
+  referenceImageUrl?: string | null;
 }
 
 export default function BenchmarkComparisonViewer({
   comparison,
   imageUrl,
+  referenceImageUrl,
 }: BenchmarkComparisonViewerProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
   const [showGt, setShowGt] = useState(true);
   const [showPred, setShowPred] = useState(true);
   const [showMasks, setShowMasks] = useState(true);
   const [showBoxes, setShowBoxes] = useState(true);
+
+  useEffect(() => {
+    if (comparison?.format) {
+      setShowBoxes(comparison.format !== "thermal");
+    }
+  }, [comparison?.format]);
 
   const hasAnyMasks = useMemo(() => {
     if (!comparison) return false;
@@ -71,6 +80,23 @@ export default function BenchmarkComparisonViewer({
   }, [comparison, showGt, showPred]);
 
   if (!comparison) return null;
+
+  const reference = comparison.reference;
+  const referencePanel = reference ? (
+    referenceImageUrl ? (
+      <BenchmarkMaskCanvas
+        title={`Reference (${reference.referenceId})`}
+        imageUrl={referenceImageUrl}
+        width={reference.width}
+        height={reference.height}
+        layers={[{ annotations: reference.annotations, color: REF_COLOR }]}
+        showMasks={showMasks}
+        showBoxes={showBoxes}
+      />
+    ) : (
+      <Typography variant="body_short">Loading reference image…</Typography>
+    )
+  ) : null;
 
   return (
     <DashboardPanel title="Ground truth vs. prediction" style={{ marginBottom: "1rem" }}>
@@ -122,6 +148,7 @@ export default function BenchmarkComparisonViewer({
       {imageUrl ? (
         viewMode === "side-by-side" ? (
           <SideBySideGrid>
+            {referencePanel}
             <BenchmarkMaskCanvas
               title={`Ground truth (${comparison.groundTruth.length})`}
               imageUrl={imageUrl}
@@ -137,6 +164,19 @@ export default function BenchmarkComparisonViewer({
               width={comparison.width}
               height={comparison.height}
               layers={[{ annotations: comparison.predictions, color: PRED_COLOR }]}
+              showMasks={showMasks}
+              showBoxes={showBoxes}
+            />
+          </SideBySideGrid>
+        ) : referencePanel ? (
+          <SideBySideGrid>
+            {referencePanel}
+            <BenchmarkMaskCanvas
+              title="Source overlay (GT vs. prediction)"
+              imageUrl={imageUrl}
+              width={comparison.width}
+              height={comparison.height}
+              layers={overlayLayers}
               showMasks={showMasks}
               showBoxes={showBoxes}
             />

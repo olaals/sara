@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { getBenchmarkImageUrl } from "../../../../api/benchmarkClient";
+import {
+  getBenchmarkImageUrl,
+  getBenchmarkReferenceImageUrl,
+} from "../../../../api/benchmarkClient";
 
-export function useBenchmarkImageObjectUrl(
-  datasetId: string,
-  version: string,
-  split: string,
-  runId: string,
-  imageId: number | null
+function useManagedObjectUrl(
+  enabled: boolean,
+  fetcher: () => Promise<string>,
+  deps: readonly unknown[]
 ) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -14,11 +15,11 @@ export function useBenchmarkImageObjectUrl(
   useEffect(() => {
     setImageError(null);
     setImageUrl(null);
-    if (imageId === null) return;
+    if (!enabled) return;
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    getBenchmarkImageUrl(datasetId, version, split, runId, imageId)
+    fetcher()
       .then((url) => {
         if (cancelled) {
           URL.revokeObjectURL(url);
@@ -37,7 +38,36 @@ export function useBenchmarkImageObjectUrl(
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [datasetId, version, split, runId, imageId]);
+  }, deps);
 
   return { imageUrl, imageError };
+}
+
+export function useBenchmarkImageObjectUrl(
+  datasetId: string,
+  version: string,
+  split: string,
+  runId: string,
+  imageId: number | null
+) {
+  return useManagedObjectUrl(
+    imageId !== null,
+    () => getBenchmarkImageUrl(datasetId, version, split, runId, imageId!),
+    [datasetId, version, split, runId, imageId]
+  );
+}
+
+export function useBenchmarkReferenceImageObjectUrl(
+  datasetId: string,
+  version: string,
+  split: string,
+  runId: string,
+  imageId: number | null,
+  enabled: boolean
+) {
+  return useManagedObjectUrl(
+    enabled && imageId !== null,
+    () => getBenchmarkReferenceImageUrl(datasetId, version, split, runId, imageId!),
+    [datasetId, version, split, runId, imageId, enabled]
+  );
 }

@@ -9,6 +9,8 @@ using api.Configurations;
 using api.Controllers.Models;
 using api.Database.Models;
 using api.Services;
+using api.Services.BenchmarkServices;
+using api.Services.BenchmarkServices.DatasetFormats;
 using Api.Test.Mocks;
 using Azure;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -88,14 +90,65 @@ public class BenchmarkServiceTests
                             },
                         ],
                     },
+                    new BenchmarkDefinition
+                    {
+                        Id = "thermal-reading",
+                        Label = "Thermal Reading",
+                        Description = "Evaluates thermal image alignment and temperature reading.",
+                        Container = "thermal-reading",
+                        WorkflowTemplate = "thermal-reading-benchmark",
+                        DefaultSplit = "val",
+                        Devices = ["cpu"],
+                        Methods = ["phase_correlation", "orb_bf"],
+                        Parameters =
+                        [
+                            new BenchmarkParameterDefinition
+                            {
+                                Name = "confidence-threshold",
+                                Label = "Confidence",
+                                Min = 0.0,
+                                Max = 1.0,
+                                Step = 0.05,
+                                Placeholder = "0.5",
+                            },
+                            new BenchmarkParameterDefinition
+                            {
+                                Name = "iou-threshold",
+                                Label = "Min IoU",
+                                Min = 0.0,
+                                MinExclusive = true,
+                                Max = 1.0,
+                                Step = 0.05,
+                                Placeholder = "0.7",
+                            },
+                        ],
+                    },
                 ],
             }
         );
+        var storage = blobStorage ?? new BlobStorageServiceMock { BlobExists = false };
         var cache = new BenchmarkIndexCache(options, NullLogger<BenchmarkIndexCache>.Instance);
+        var blobReader = new BenchmarkBlobReader(
+            storage,
+            cache,
+            options,
+            NullLogger<BenchmarkBlobReader>.Instance
+        );
+        IBenchmarkDatasetFormatHandler[] formatHandlers =
+        [
+            new CocoDatasetFormatHandler(blobReader),
+            new ThermalDatasetFormatHandler(blobReader),
+        ];
+        var coverImageService = new BenchmarkCoverImageService(
+            storage,
+            blobReader,
+            NullLogger<BenchmarkCoverImageService>.Instance
+        );
         var service = new BenchmarkService(
             argo,
-            blobStorage ?? new BlobStorageServiceMock { BlobExists = false },
-            cache,
+            blobReader,
+            coverImageService,
+            formatHandlers,
             options,
             NullLogger<BenchmarkService>.Instance
         );
@@ -297,6 +350,21 @@ public class BenchmarkServiceTests
             """;
 
         var storage = new InMemoryBlobStorage();
+        storage.Put(
+            "anonymizer",
+            "schema.json",
+            Encoding.UTF8.GetBytes("""{"format":"coco","schema_version":1}""")
+        );
+        storage.Put(
+            "rain-drop-detection",
+            "schema.json",
+            Encoding.UTF8.GetBytes("""{"format":"coco","schema_version":1}""")
+        );
+        storage.Put(
+            "thermal-reading",
+            "schema.json",
+            Encoding.UTF8.GetBytes("""{"format":"thermal","schema_version":1}""")
+        );
         storage.Put("anonymizer", "v001/dataset/manifest.json", Encoding.UTF8.GetBytes("{}"));
         storage.Put(
             "anonymizer",
@@ -309,10 +377,10 @@ public class BenchmarkServiceTests
         var ct = TestContext.Current.CancellationToken;
 
         var datasets = await service.GetDatasetsAsync(ct);
-        Assert.Equal(
-            "Evaluates face and person anonymization models.",
-            datasets.Single(d => d.Id == "anonymizer").Description
-        );
+        var anonDataset = datasets.Single(d => d.Id == "anonymizer");
+        Assert.Equal("Evaluates face and person anonymization models.", anonDataset.Description);
+        Assert.Equal("coco", anonDataset.Format);
+        Assert.Equal("thermal", datasets.Single(d => d.Id == "thermal-reading").Format);
 
         var defaultCover = await service.GetCoverImageAsync("anonymizer", ct);
         Assert.Equal("image/png", defaultCover.ContentType);
@@ -336,6 +404,11 @@ public class BenchmarkServiceTests
     public async Task CoverImageRejectsInvalidUploadAndReturnsNotFoundWithoutDataset()
     {
         var storage = new InMemoryBlobStorage();
+        storage.Put(
+            "rain-drop-detection",
+            "schema.json",
+            Encoding.UTF8.GetBytes("""{"format":"coco","schema_version":1}""")
+        );
         var (service, _) = CreateService(storage);
         var ct = TestContext.Current.CancellationToken;
 
@@ -346,6 +419,28 @@ public class BenchmarkServiceTests
         using var invalidStream = new MemoryStream(Encoding.UTF8.GetBytes("not an image"));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             service.UploadCoverImageAsync("rain-drop-detection", invalidStream, ct)
+        );
+    }
+
+    [Fact]
+    public async Task MissingOrInvalidSchemaJsonFailsWithoutFallback()
+    {
+        var storage = new InMemoryBlobStorage();
+        var (service, _) = CreateService(storage);
+        var ct = TestContext.Current.CancellationToken;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetDatasetsAsync(ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetCoverImageAsync("thermal-reading", ct)
+        );
+
+        storage.Put(
+            "thermal-reading",
+            "schema.json",
+            Encoding.UTF8.GetBytes("""{"format":"unknown","schema_version":1}""")
+        );
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetCoverImageAsync("thermal-reading", ct)
         );
     }
 

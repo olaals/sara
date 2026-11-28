@@ -3,7 +3,7 @@ using api.Utilities;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 
-namespace api.Services;
+namespace api.Services.BenchmarkServices;
 
 public readonly record struct CachedBenchmarkPayload<T>(T? Value, long EstimatedBytes);
 

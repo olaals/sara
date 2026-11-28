@@ -1,5 +1,6 @@
 using api.Controllers.Models;
 using api.Services;
+using api.Services.BenchmarkServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,7 +19,17 @@ public class BenchmarkController(IBenchmarkService benchmarkService) : Controlle
     [ProducesResponseType(typeof(IReadOnlyList<BenchmarkDatasetDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<BenchmarkDatasetDto>>> GetDatasets(
         CancellationToken cancellationToken
-    ) => Ok(await benchmarkService.GetDatasetsAsync(cancellationToken));
+    )
+    {
+        try
+        {
+            return Ok(await benchmarkService.GetDatasetsAsync(cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+        }
+    }
 
     [HttpGet("datasets/{datasetId}/cover-image")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -42,6 +53,10 @@ public class BenchmarkController(IBenchmarkService benchmarkService) : Controlle
         catch (KeyNotFoundException ex)
         {
             return NotFound(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
     }
 
@@ -170,6 +185,10 @@ public class BenchmarkController(IBenchmarkService benchmarkService) : Controlle
         {
             return NotFound(ex.Message);
         }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+        }
     }
 
     [HttpGet("results/{runId}/images/{imageId:int}")]
@@ -206,6 +225,10 @@ public class BenchmarkController(IBenchmarkService benchmarkService) : Controlle
         {
             return NotFound(ex.Message);
         }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+        }
     }
 
     [HttpGet("results/{runId}/images/{imageId:int}/image")]
@@ -240,6 +263,49 @@ public class BenchmarkController(IBenchmarkService benchmarkService) : Controlle
         catch (KeyNotFoundException ex)
         {
             return NotFound(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
+        }
+    }
+
+    [HttpGet("results/{runId}/images/{imageId:int}/reference-image")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetDatasetReferenceImage(
+        [FromRoute] string runId,
+        [FromRoute] int imageId,
+        [FromQuery] string datasetId,
+        [FromQuery] string version,
+        [FromQuery] string split,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            var image = await benchmarkService.GetDatasetReferenceImageAsync(
+                datasetId,
+                version,
+                split,
+                imageId,
+                cancellationToken
+            );
+            Response.Headers.CacheControl = DatasetImageCacheControl;
+            return File(image.Content, image.ContentType);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
     }
 }
